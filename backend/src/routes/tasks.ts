@@ -37,24 +37,18 @@ const resolveAgent = async (agentInput: string) => {
   return { id: agent.id, name: agent.name };
 };
 
+// Flag to track if status_history table exists (checked once at runtime)
+let statusHistoryTableExists: boolean | null = null;
+
 const insertStatusHistory = async (taskId: string, status: string, notes?: string) => {
   const timestamp = new Date().toISOString();
   
+  // If we already know the table doesn't exist, skip immediately
+  if (statusHistoryTableExists === false) {
+    return { error: null, timestamp };
+  }
+  
   try {
-    // Check if status_history table exists by attempting a minimal query
-    const { error: checkError } = await supabase
-      .from('status_history')
-      .select('id', { count: 'exact', head: true });
-      
-    if (checkError) {
-      if (checkError.message.includes('does not exist') || 
-          checkError.message.includes('schema cache') ||
-          checkError.code === '42P01') {
-        console.warn('status_history table does not exist, skipping history logging');
-        return { error: null, timestamp };
-      }
-    }
-    
     const { error } = await supabase
       .from('status_history')
       .insert([
@@ -67,11 +61,28 @@ const insertStatusHistory = async (taskId: string, status: string, notes?: strin
       ]);
 
     if (error) {
-      console.warn('Failed to insert status history:', error.message);
+      // Check if error is about missing table
+      if (error.message?.includes('does not exist') || 
+          error.message?.includes('schema cache') ||
+          error.code === '42P01' ||
+          error.code === 'PGRST204') {
+        statusHistoryTableExists = false;
+        console.warn('status_history table does not exist, skipping history logging');
+      } else {
+        console.warn('Failed to insert status history:', error.message);
+      }
+    } else {
+      statusHistoryTableExists = true;
     }
   } catch (e: any) {
-    // Gracefully handle any errors (including schema cache errors)
-    console.warn('status_history table not available, skipping:', e?.message || e);
+    // Check if error is about missing table
+    if (e?.message?.includes('does not exist') || 
+        e?.message?.includes('schema cache')) {
+      statusHistoryTableExists = false;
+      console.warn('status_history table not available, skipping history logging');
+    } else {
+      console.warn('status_history error:', e?.message || e);
+    }
   }
 
   return { error: null, timestamp };
