@@ -40,29 +40,38 @@ const resolveAgent = async (agentInput: string) => {
 const insertStatusHistory = async (taskId: string, status: string, notes?: string) => {
   const timestamp = new Date().toISOString();
   
-  // Check if status_history table exists by attempting a minimal query
-  const { error: checkError } = await supabase
-    .from('status_history')
-    .select('id', { count: 'exact', head: true });
+  try {
+    // Check if status_history table exists by attempting a minimal query
+    const { error: checkError } = await supabase
+      .from('status_history')
+      .select('id', { count: 'exact', head: true });
+      
+    if (checkError) {
+      if (checkError.message.includes('does not exist') || 
+          checkError.message.includes('schema cache') ||
+          checkError.code === '42P01') {
+        console.warn('status_history table does not exist, skipping history logging');
+        return { error: null, timestamp };
+      }
+    }
     
-  if (checkError && checkError.message.includes('does not exist')) {
-    console.warn('status_history table does not exist, skipping history logging');
-    return { error: null, timestamp };
-  }
-  
-  const { error } = await supabase
-    .from('status_history')
-    .insert([
-      {
-        task_id: taskId,
-        status,
-        timestamp,
-        notes: notes || null,
-      },
-    ]);
+    const { error } = await supabase
+      .from('status_history')
+      .insert([
+        {
+          task_id: taskId,
+          status,
+          timestamp,
+          notes: notes || null,
+        },
+      ]);
 
-  if (error) {
-    console.warn('Failed to insert status history:', error.message);
+    if (error) {
+      console.warn('Failed to insert status history:', error.message);
+    }
+  } catch (e: any) {
+    // Gracefully handle any errors (including schema cache errors)
+    console.warn('status_history table not available, skipping:', e?.message || e);
   }
 
   return { error: null, timestamp };
