@@ -37,14 +37,14 @@ const resolveAgent = async (agentInput: string) => {
   return { id: agent.id, name: agent.name };
 };
 
-// Flag to track if status_history table exists (checked once at runtime)
-let statusHistoryTableExists: boolean | null = null;
+// Status history is disabled until the status_history table is created in Supabase
+// Run backend/migrations/OLY-013-status-history-MANUAL.sql in Supabase SQL Editor to enable
+const statusHistoryEnabled = false;
 
 const insertStatusHistory = async (taskId: string, status: string, notes?: string) => {
   const timestamp = new Date().toISOString();
   
-  // If we already know the table doesn't exist, skip immediately
-  if (statusHistoryTableExists === false) {
+  if (!statusHistoryEnabled) {
     return { error: null, timestamp };
   }
   
@@ -61,28 +61,10 @@ const insertStatusHistory = async (taskId: string, status: string, notes?: strin
       ]);
 
     if (error) {
-      // Check if error is about missing table
-      if (error.message?.includes('does not exist') || 
-          error.message?.includes('schema cache') ||
-          error.code === '42P01' ||
-          error.code === 'PGRST204') {
-        statusHistoryTableExists = false;
-        console.warn('status_history table does not exist, skipping history logging');
-      } else {
-        console.warn('Failed to insert status history:', error.message);
-      }
-    } else {
-      statusHistoryTableExists = true;
+      console.warn('Failed to insert status history:', error.message);
     }
   } catch (e: any) {
-    // Check if error is about missing table
-    if (e?.message?.includes('does not exist') || 
-        e?.message?.includes('schema cache')) {
-      statusHistoryTableExists = false;
-      console.warn('status_history table not available, skipping history logging');
-    } else {
-      console.warn('status_history error:', e?.message || e);
-    }
+    console.warn('status_history error:', e?.message || e);
   }
 
   return { error: null, timestamp };

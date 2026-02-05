@@ -31,12 +31,12 @@ const resolveAgent = async (agentInput) => {
         return { error: 'Assignee not found' };
     return { id: agent.id, name: agent.name };
 };
-// Flag to track if status_history table exists (checked once at runtime)
-let statusHistoryTableExists = null;
+// Status history is disabled until the status_history table is created in Supabase
+// Run backend/migrations/OLY-013-status-history-MANUAL.sql in Supabase SQL Editor to enable
+const statusHistoryEnabled = false;
 const insertStatusHistory = async (taskId, status, notes) => {
     const timestamp = new Date().toISOString();
-    // If we already know the table doesn't exist, skip immediately
-    if (statusHistoryTableExists === false) {
+    if (!statusHistoryEnabled) {
         return { error: null, timestamp };
     }
     try {
@@ -51,32 +51,11 @@ const insertStatusHistory = async (taskId, status, notes) => {
             },
         ]);
         if (error) {
-            // Check if error is about missing table
-            if (error.message?.includes('does not exist') ||
-                error.message?.includes('schema cache') ||
-                error.code === '42P01' ||
-                error.code === 'PGRST204') {
-                statusHistoryTableExists = false;
-                console.warn('status_history table does not exist, skipping history logging');
-            }
-            else {
-                console.warn('Failed to insert status history:', error.message);
-            }
-        }
-        else {
-            statusHistoryTableExists = true;
+            console.warn('Failed to insert status history:', error.message);
         }
     }
     catch (e) {
-        // Check if error is about missing table
-        if (e?.message?.includes('does not exist') ||
-            e?.message?.includes('schema cache')) {
-            statusHistoryTableExists = false;
-            console.warn('status_history table not available, skipping history logging');
-        }
-        else {
-            console.warn('status_history error:', e?.message || e);
-        }
+        console.warn('status_history error:', e?.message || e);
     }
     return { error: null, timestamp };
 };
@@ -228,7 +207,12 @@ taskRoutes.patch('/:id/status', async (c) => {
     if (error)
         return c.json({ error: error.message }, 500);
     // Try to insert status history, but don't fail if table doesn't exist
-    await insertStatusHistory(id, nextStatus, `Status changed to ${nextStatus}`);
+    try {
+        await insertStatusHistory(id, nextStatus, `Status changed to ${nextStatus}`);
+    }
+    catch (e) {
+        console.warn('Status history insert failed (table may not exist):', e?.message || e);
+    }
     // Try to fetch history, but don't fail if table doesn't exist
     let history = [];
     try {
@@ -271,7 +255,12 @@ const assignTaskHandler = async (c) => {
     if (error)
         return c.json({ error: error.message }, 500);
     // Try to insert status history, but don't fail if table doesn't exist
-    await insertStatusHistory(id, 'assigned', `Assigned to ${resolved.name}`);
+    try {
+        await insertStatusHistory(id, 'assigned', `Assigned to ${resolved.name}`);
+    }
+    catch (e) {
+        console.warn('Status history insert failed (table may not exist):', e?.message || e);
+    }
     return c.json({ task: data });
 };
 // PATCH /api/tasks/:id/assign - Assign task to agent
