@@ -260,11 +260,15 @@ taskRoutes.patch('/:id/status', async (c) => {
   if (error) return c.json({ error: error.message }, 500);
 
   // Try to insert status history, but don't fail if table doesn't exist
-  await insertStatusHistory(
-    id,
-    nextStatus,
-    `Status changed to ${nextStatus}`
-  );
+  try {
+    await insertStatusHistory(
+      id,
+      nextStatus,
+      `Status changed to ${nextStatus}`
+    );
+  } catch (e: any) {
+    console.warn('Status history insert failed (table may not exist):', e?.message || e);
+  }
 
   // Try to fetch history, but don't fail if table doesn't exist
   let history = [];
@@ -314,11 +318,15 @@ const assignTaskHandler = async (c: any) => {
   if (error) return c.json({ error: error.message }, 500);
 
   // Try to insert status history, but don't fail if table doesn't exist
-  await insertStatusHistory(
-    id,
-    'assigned',
-    `Assigned to ${resolved.name}`
-  );
+  try {
+    await insertStatusHistory(
+      id,
+      'assigned',
+      `Assigned to ${resolved.name}`
+    );
+  } catch (e: any) {
+    console.warn('Status history insert failed (table may not exist):', e?.message || e);
+  }
 
   return c.json({ task: data });
 };
