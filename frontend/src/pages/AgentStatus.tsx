@@ -1,0 +1,22 @@
+import { AgentDetailCard } from '@/components/agents/AgentDetailCard'
+import { useOlympusStore } from '@/hooks/useOlympusStore'
+
+export function AgentStatus() {
+  const agents = useOlympusStore((state) => state.agents)
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <p className="font-mono text-xs uppercase tracking-[0.3em] text-text-muted">Agents</p>
+        <h2 className="text-2xl font-display mt-2 sm:text-3xl">Pantheon Status Console</h2>
+        <p className="mt-2 text-sm text-text-secondary">Live performance analytics for every divine unit.</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {agents.map((agent) => (
+          <AgentDetailCard key={agent.id} agent={agent} />
+        ))}
+      </div>
+    </div>
+  )
+}
