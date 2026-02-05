@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { DndContext, DragOverlay, PointerSensor, useDroppable, useSensor, useSensors, closestCorners } from '@dnd-kit/core'
-import { Filter, Plus } from 'lucide-react'
+import { Filter, Plus, Loader2 } from 'lucide-react'
 import { TaskCard } from './TaskCard'
 import { CreateTaskModal } from './CreateTaskModal'
 import { FilterModal } from './FilterModal'
@@ -10,10 +10,32 @@ export function TaskBoard() {
   const tasks = useOlympusStore((state) => state.tasks)
   const columns = useOlympusStore((state) => state.columns)
   const moveTask = useOlympusStore((state) => state.moveTask)
+  const updateTaskStatus = useOlympusStore((state) => state.updateTaskStatus)
+  const fetchTasks = useOlympusStore((state) => state.fetchTasks)
+  const isLoading = useOlympusStore((state) => state.isLoading)
+  
   const [activeTask, setActiveTask] = useState<OlympusTask | null>(null)
   const [activeStatus, setActiveStatus] = useState<TaskStatus>('inbox')
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false)
+  const [isInitialLoading, setIsInitialLoading] = useState(true)
+
+  // Fetch tasks on mount
+  useEffect(() => {
+    const loadData = async () => {
+      setIsInitialLoading(true)
+      await fetchTasks()
+      setIsInitialLoading(false)
+    }
+    loadData()
+    
+    // Poll for updates every 10 seconds
+    const interval = setInterval(() => {
+      fetchTasks()
+    }, 10000)
+    
+    return () => clearInterval(interval)
+  }, [fetchTasks])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -33,8 +55,42 @@ export function TaskBoard() {
 
   const activeColumn = columns.find((column) => column.id === activeStatus) ?? columns[0]
 
+  const handleDragEnd = async (event: any) => {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      const newStatus = over.id as TaskStatus
+      const task = tasks.find((t) => t.id === active.id)
+      
+      if (task && task.status !== newStatus) {
+        // Optimistic update
+        moveTask(active.id, newStatus)
+        
+        // Sync with backend
+        await updateTaskStatus(active.id, newStatus)
+      }
+    }
+    setActiveTask(null)
+  }
+
+  if (isInitialLoading) {
+    return (
+      <div className="space-y-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.3em] text-text-muted">Task Board</p>
+            <h2 className="text-2xl font-display mt-2">Operational Task Grid</h2>
+          </div>
+        </div>
+        <div className="flex items-center justify-center py-20">
+          <Loader2 size={32} className="animate-spin text-primary" />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-8">
+      {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.3em] text-text-muted">Task Board</p>
@@ -58,6 +114,14 @@ export function TaskBoard() {
         </div>
       </div>
 
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="flex items-center gap-2 text-text-muted text-xs font-mono">
+          <Loader2 size={12} className="animate-spin" />
+          Syncing...
+        </div>
+      )}
+
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -65,15 +129,10 @@ export function TaskBoard() {
           const task = tasks.find((item) => item.id === event.active.id)
           setActiveTask(task ?? null)
         }}
-        onDragEnd={(event) => {
-          const { active, over } = event
-          if (over) {
-            moveTask(String(active.id), over.id as TaskStatus)
-          }
-          setActiveTask(null)
-        }}
+        onDragEnd={handleDragEnd}
         onDragCancel={() => setActiveTask(null)}
       >
+        {/* Mobile Tabs */}
         <div className="flex gap-2 overflow-x-auto pb-2 sm:hidden">
           {columns.map((column) => (
             <button
@@ -92,6 +151,7 @@ export function TaskBoard() {
           ))}
         </div>
 
+        {/* Mobile View */}
         <div className="sm:hidden">
           {activeColumn ? (
             <TaskColumn
@@ -104,6 +164,7 @@ export function TaskBoard() {
           ) : null}
         </div>
 
+        {/* Desktop View */}
         <div className="hidden sm:flex gap-4 overflow-x-auto pb-4">
           {columns.map((column) => (
             <TaskColumn
@@ -140,14 +201,14 @@ interface TaskColumnProps {
 }
 
 function TaskColumn({ columnId, label, description, tasks, isCompact = false }: TaskColumnProps) {
-  const { setNodeRef } = useDroppableColumn(columnId)
+  const { setNodeRef, isOver } = useDroppable({ id: columnId })
 
   return (
     <div
       ref={setNodeRef}
       className={`flex-shrink-0 ${isCompact ? 'w-full' : 'w-72'}`}
     >
-      <div className="flex items-center justify-between mb-3">
+      <div className={`flex items-center justify-between mb-3 p-2 rounded-lg transition-colors ${isOver ? 'bg-[rgba(184,150,90,0.08)]' : ''}`}>
         <div>
           <h3 className="font-mono uppercase tracking-[0.2em] text-xs text-text-secondary">
             {label}
@@ -161,15 +222,11 @@ function TaskColumn({ columnId, label, description, tasks, isCompact = false }: 
         </span>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-3 min-h-[100px]">
         {tasks.map((task) => (
           <TaskCard key={task.id} task={task} />
         ))}
       </div>
     </div>
   )
-}
-
-function useDroppableColumn(id: TaskStatus) {
-  return useDroppable({ id })
 }

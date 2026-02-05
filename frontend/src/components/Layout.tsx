@@ -1,5 +1,6 @@
 import { ReactNode } from 'react'
 import { Header } from './Header'
+import { ToastContainer } from './Toast'
 
 interface LayoutProps {
   children: ReactNode
@@ -16,6 +17,7 @@ export function Layout({ children }: LayoutProps) {
         <main className="flex-1 overflow-auto px-4 py-6 sm:px-6 lg:px-8">
           {children}
         </main>
+        <ToastContainer />
       </div>
     </div>
   )

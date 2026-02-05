@@ -38,6 +38,17 @@
   }
 }
 
+@keyframes slideIn {
+  0% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .animate-card-reveal {
   animation: cardReveal 700ms ease-out both;
 }
@@ -52,4 +63,8 @@
 
 .animate-alert-blink {
   animation: alertBlink 1.2s ease-in-out infinite;
+}
+
+.animate-slide-in {
+  animation: slideIn 300ms ease-out both;
 }
