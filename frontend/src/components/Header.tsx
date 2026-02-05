@@ -36,7 +36,7 @@ export function Header() {
           <div className="flex items-center gap-3">
             <span className="text-primary text-2xl">🔱</span>
             <div>
-              <p className="font-display uppercase tracking-[0.2em] text-primary text-sm">OLYMPUS</p>
+              <p className="font-display uppercase tracking-[0.2em] text-primary text-sm">OLYMP</p>
               <p className="text-xs text-text-muted font-mono uppercase tracking-[0.24em]">
                 Command of the Gods
               </p>

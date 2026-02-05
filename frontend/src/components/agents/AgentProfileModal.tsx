@@ -108,7 +108,7 @@ export function AgentProfileModal({ agentId, onClose }: AgentProfileModalProps) 
           <div className="glass-panel p-4">
             <h4 className="font-mono text-xs uppercase tracking-[0.2em] text-text-muted mb-2">SOUL Personality</h4>
             <p className="text-sm text-text-primary leading-relaxed">
-              {agent.name === 'ARGOS' && 'Master orchestrator of the OLYMPUS system. Strategic, decisive, and focused on mission success. Direct communication style with dry wit.'}
+              {agent.name === 'ARGOS' && 'Master orchestrator of the OLYMP system. Strategic, decisive, and focused on mission success. Direct communication style with dry wit.'}
               {agent.name === 'ATLAS' && 'Frontend engineering specialist. Detail-oriented, pixel-perfect implementation, obsessed with user experience and responsive design.'}
               {agent.name === 'HERCULOS' && 'Backend forge master. Builds robust APIs and database architectures. Values reliability, performance, and clean code above all.'}
               {agent.name === 'ATHENA' && 'Quality assurance and strategic wisdom. Analytical, thorough, and relentless in pursuit of excellence. No bug escapes her notice.'}

@@ -7,7 +7,7 @@ export function Dashboard() {
     <div className="space-y-8">
       <div>
         <p className="font-mono text-xs uppercase tracking-[0.3em] text-text-muted">Overview</p>
-        <h2 className="text-2xl font-display mt-2 sm:text-3xl">OLYMPUS Command Nexus</h2>
+        <h2 className="text-2xl font-display mt-2 sm:text-3xl">OLYMP Command Nexus</h2>
         <p className="mt-2 text-sm text-text-secondary">
           Premium operational telemetry for the Pantheon.
         </p>
