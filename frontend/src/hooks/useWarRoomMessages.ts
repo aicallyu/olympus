@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { WarRoomMessage } from '@/lib/war-room/types';
+import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 export function useWarRoomMessages(roomId: string) {
   const [messages, setMessages] = useState<WarRoomMessage[]>([]);
@@ -35,7 +36,7 @@ export function useWarRoomMessages(roomId: string) {
           table: 'war_room_messages',
           filter: `room_id=eq.${roomId}`,
         },
-        (payload) => {
+        (payload: RealtimePostgresChangesPayload<{[key: string]: any}>) => {
           setMessages((prev) => [...prev, payload.new as WarRoomMessage]);
         }
       )
@@ -47,9 +48,9 @@ export function useWarRoomMessages(roomId: string) {
           table: 'war_room_messages',
           filter: `room_id=eq.${roomId}`,
         },
-        (payload) => {
+        (payload: RealtimePostgresChangesPayload<{[key: string]: any}>) => {
           setMessages((prev) =>
-            prev.map((m) => (m.id === payload.new.id ? (payload.new as WarRoomMessage) : m))
+            prev.map((m) => (m.id === (payload.new as any).id ? (payload.new as WarRoomMessage) : m))
           );
         }
       )

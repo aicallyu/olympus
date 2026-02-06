@@ -68,7 +68,7 @@ export function WarRoomLobby() {
 
     if (roomsData) {
       const roomsWithDetails = await Promise.all(
-        roomsData.map(async (room) => {
+        roomsData.map(async (room: {id: string, name: string, description: string | null, created_at: string}) => {
           const { data: participants } = await supabase
             .from('war_room_participants')
             .select('participant_name')
@@ -91,7 +91,7 @@ export function WarRoomLobby() {
             id: room.id,
             name: room.name,
             description: room.description || '',
-            participant_names: participants?.map(p => p.participant_name) || [],
+            participant_names: participants?.map((p: {participant_name: string}) => p.participant_name) || [],
             message_count: messageCount || 0,
             last_message_at: lastMessage?.created_at || room.created_at,
           };
