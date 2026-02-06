@@ -4,7 +4,8 @@ import {
   Kanban, 
   Bot, 
   Activity,
-  Settings 
+  Settings,
+  MessageCircle
 } from 'lucide-react'
 
 const navItems = [
@@ -12,6 +13,7 @@ const navItems = [
   { path: '/tasks', icon: Kanban, label: 'Task Board' },
   { path: '/agents', icon: Bot, label: 'Agents' },
   { path: '/activity', icon: Activity, label: 'Activity' },
+  { path: '/war-room', icon: MessageCircle, label: 'War Room' },
 ]
 
 export function Sidebar() {
