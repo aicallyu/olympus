@@ -3,7 +3,7 @@ import { useWarRoomMessages } from '@/hooks/useWarRoomMessages';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { MessageBubble } from './MessageBubble';
 import { supabase } from '@/lib/supabase';
-import { Users, Plus, X, MoreVertical } from 'lucide-react';
+import { Users, Plus, X } from 'lucide-react';
 
 interface Props {
   roomId: string;
