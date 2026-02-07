@@ -11,7 +11,18 @@ const KIMI_KEY = Deno.env.get("KIMI_API_KEY") || "";
 
 serve(async (req: Request) => {
   try {
-    const { message_id, room_id, sender_name, content, content_type, audio_url } = await req.json();
+    const body = await req.json();
+    const {
+      message_id, room_id, sender_name, content, content_type, audio_url,
+      action, target_agents,
+    } = body;
+
+    // ---- ACTION: full_response (frontend requests specific agent responses) ----
+    if (action === "full_response") {
+      return await handleFullResponse(room_id, content, target_agents || []);
+    }
+
+    // ---- DEFAULT: triggered by DB webhook on human message ----
 
     // Step 1: If voice message, transcribe first
     let messageText = content;
@@ -30,114 +41,169 @@ serve(async (req: Request) => {
       .eq("room_id", room_id)
       .eq("is_active", true);
 
-    const { data: room } = await supabase
-      .from("war_rooms")
-      .select("routing_mode")
-      .eq("id", room_id)
-      .single();
-
     const agentParticipants = participants?.filter(p => p.participant_type === "agent") || [];
 
     if (agentParticipants.length === 0) {
-      return new Response(JSON.stringify({ status: "no_agents" }), { status: 200 });
+      return json({ status: "no_agents" });
     }
 
-    // Step 3: Determine which agent(s) should respond
-    let respondingAgents: string[] = [];
+    // Step 3: Check for @mentions — direct response (skip hand-raise)
+    const mentioned = agentParticipants
+      .filter(a => messageText.toLowerCase().includes(`@${a.participant_name.toLowerCase()}`))
+      .map(a => a.participant_name);
 
-    if (room?.routing_mode === "all") {
-      respondingAgents = agentParticipants.map(a => a.participant_name);
-    } else if (room?.routing_mode === "mentioned") {
-      respondingAgents = agentParticipants
-        .filter(a => messageText.includes(`@${a.participant_name}`))
-        .map(a => a.participant_name);
-    } else {
-      // 'moderated' — ask the Moderator Agent (using Kimi for now)
-      respondingAgents = await askModerator(messageText, agentParticipants, room_id);
+    if (mentioned.length > 0) {
+      return await handleFullResponse(room_id, messageText, mentioned);
     }
 
-    if (respondingAgents.length === 0) {
-      return new Response(JSON.stringify({ status: "no_response_needed" }), { status: 200 });
-    }
+    // Step 4: Hand-raise mode — ask all agents if they want to speak
+    // First, reset all hands from previous message
+    await supabase
+      .from("war_room_participants")
+      .update({ hand_raised: false, hand_reason: null })
+      .eq("room_id", room_id)
+      .eq("participant_type", "agent");
 
-    // Step 4: Look up agent records from the agents table
+    // Look up agent records
+    const agentNames = agentParticipants
+      .filter(a => !a.participant_config?.session_key?.startsWith?.("human:"))
+      .map(a => a.participant_name);
+
     const { data: agentRecords } = await supabase
       .from("agents")
-      .select("name, role, session_key, api_endpoint, api_model, system_prompt, model_primary, model_escalation")
-      .in("name", respondingAgents);
+      .select("name, role, session_key, api_endpoint, api_model, system_prompt, model_primary, model_escalation, voice_id")
+      .in("name", agentNames);
 
     const agentMap = new Map<string, AgentRecord>();
     for (const rec of agentRecords || []) {
       agentMap.set(rec.name, rec);
     }
 
-    // Step 5: Build conversation context
-    const context = await buildContext(room_id, 20);
+    // Ask all agents in parallel if they want to speak
+    const handRaiseResults = await Promise.all(
+      agentNames.map(async (name) => {
+        const rec = agentMap.get(name);
+        // Skip humans
+        if (rec?.session_key?.startsWith("human:")) return null;
+        const result = await askHandRaise(rec, messageText, name);
+        return { name, ...result };
+      })
+    );
 
-    // Step 6: Get responses from each selected agent (in parallel)
-    const responsePromises = respondingAgents.map(async (agentName) => {
-      const participant = agentParticipants.find(a => a.participant_name === agentName);
-      const agentRecord = agentMap.get(agentName);
+    // Update participants with hand-raise results
+    for (const result of handRaiseResults) {
+      if (!result) continue;
+      const participant = agentParticipants.find(a => a.participant_name === result.name);
+      if (!participant) continue;
 
-      if (!participant) return;
+      await supabase
+        .from("war_room_participants")
+        .update({
+          hand_raised: result.wants_to_speak,
+          hand_reason: result.wants_to_speak ? result.reason : null,
+        })
+        .eq("id", participant.id);
+    }
 
-      // Skip human participants
-      if (participant.participant_type === "human") return;
-      if (agentRecord?.session_key?.startsWith("human:")) return;
+    const raisedHands = handRaiseResults.filter(r => r?.wants_to_speak).map(r => r!.name);
+    return json({ status: "hands_raised", agents: raisedHands });
 
-      const startTime = Date.now();
-
-      try {
-        const response = await callAgentFromRecord(agentRecord, participant, messageText, context, agentName);
-        const responseTime = Date.now() - startTime;
-
-        const modelUsed = agentRecord?.api_model || agentRecord?.model_primary || "unknown";
-
-        const { data: insertedMsg } = await supabase
-          .from("war_room_messages")
-          .insert({
-            room_id,
-            sender_name: agentName,
-            sender_type: "agent",
-            content: response.text,
-            content_type: "text",
-            metadata: {
-              model_used: modelUsed,
-              tokens_used: response.tokensUsed,
-              response_time_ms: responseTime,
-              routing_reason: response.routingReason || "",
-            },
-          })
-          .select()
-          .single();
-
-        // Voice TTS if configured in participant_config
-        const pConfig = participant.participant_config || {};
-        if (pConfig.voice_enabled && pConfig.voice_id && insertedMsg) {
-          await generateVoice(response.text, pConfig.voice_id, insertedMsg.id);
-        }
-      } catch (err) {
-        console.error(`Agent ${agentName} failed:`, err);
-        await supabase.from("war_room_messages").insert({
-          room_id,
-          sender_name: "System",
-          sender_type: "system",
-          content: `⚠️ ${agentName} could not respond: ${(err as Error).message}`,
-          metadata: { error: true },
-        });
-      }
-    });
-
-    await Promise.all(responsePromises);
-
-    return new Response(JSON.stringify({ status: "ok", responded: respondingAgents }), {
-      status: 200,
-    });
   } catch (err) {
     console.error("route-message error:", err);
     return new Response(JSON.stringify({ error: (err as Error).message }), { status: 500 });
   }
 });
+
+// ============================================================
+// HANDLER: Full Response (used for hand-raise click + @mentions)
+// ============================================================
+
+async function handleFullResponse(roomId: string, messageText: string, targetAgents: string[]) {
+  if (targetAgents.length === 0) {
+    return json({ status: "no_targets" });
+  }
+
+  const { data: participants } = await supabase
+    .from("war_room_participants")
+    .select("*")
+    .eq("room_id", roomId)
+    .eq("is_active", true);
+
+  const { data: agentRecords } = await supabase
+    .from("agents")
+    .select("name, role, session_key, api_endpoint, api_model, system_prompt, model_primary, model_escalation, voice_id")
+    .in("name", targetAgents);
+
+  const agentMap = new Map<string, AgentRecord>();
+  for (const rec of agentRecords || []) {
+    agentMap.set(rec.name, rec);
+  }
+
+  const context = await buildContext(roomId, 20);
+
+  const responsePromises = targetAgents.map(async (agentName) => {
+    const participant = participants?.find(a => a.participant_name === agentName);
+    const agentRecord = agentMap.get(agentName);
+
+    if (!participant) return;
+    if (participant.participant_type === "human") return;
+    if (agentRecord?.session_key?.startsWith("human:")) return;
+
+    const startTime = Date.now();
+
+    try {
+      const response = await callAgentFromRecord(agentRecord, participant, messageText, context, agentName);
+      const responseTime = Date.now() - startTime;
+      const modelUsed = agentRecord?.api_model || agentRecord?.model_primary || "unknown";
+
+      const { data: insertedMsg } = await supabase
+        .from("war_room_messages")
+        .insert({
+          room_id: roomId,
+          sender_name: agentName,
+          sender_type: "agent",
+          content: response.text,
+          content_type: "text",
+          metadata: {
+            model_used: modelUsed,
+            tokens_used: response.tokensUsed,
+            response_time_ms: responseTime,
+            routing_reason: response.routingReason || "",
+          },
+        })
+        .select()
+        .single();
+
+      // Voice TTS if agent has a voice_id configured
+      if (agentRecord?.voice_id && insertedMsg) {
+        try {
+          await generateVoice(response.text, agentRecord.voice_id, insertedMsg.id);
+        } catch (ttsErr) {
+          console.error(`TTS failed for ${agentName}:`, ttsErr);
+        }
+      }
+
+      // Lower the agent's hand after responding
+      await supabase
+        .from("war_room_participants")
+        .update({ hand_raised: false, hand_reason: null })
+        .eq("id", participant.id);
+
+    } catch (err) {
+      console.error(`Agent ${agentName} failed:`, err);
+      await supabase.from("war_room_messages").insert({
+        room_id: roomId,
+        sender_name: "System",
+        sender_type: "system",
+        content: `⚠️ ${agentName} could not respond: ${(err as Error).message}`,
+        metadata: { error: true },
+      });
+    }
+  });
+
+  await Promise.all(responsePromises);
+  return json({ status: "ok", responded: targetAgents });
+}
 
 // ============================================================
 // TYPES
@@ -152,6 +218,7 @@ interface AgentRecord {
   system_prompt: string | null;
   model_primary: string | null;
   model_escalation: string | null;
+  voice_id: string | null;
 }
 
 interface AgentResponse {
@@ -160,59 +227,85 @@ interface AgentResponse {
   routingReason?: string;
 }
 
-// ============================================================
-// MODERATOR — Decides which agent(s) should respond
-// Using Kimi K2.5 for routing (Phase 1)
-// ============================================================
-
-interface ModeratorResult {
-  respond: string[];
+interface HandRaiseResult {
+  wants_to_speak: boolean;
   reason: string;
 }
 
-async function askModerator(
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+// ============================================================
+// HAND RAISE — Lightweight check per agent
+// ============================================================
+
+async function askHandRaise(
+  agentRecord: AgentRecord | undefined,
   message: string,
-  agents: any[],
-  _roomId: string
-): Promise<string[]> {
-  const agentList = agents
-    .map(a => {
-      const config = a.participant_config || {};
-      return `- ${a.participant_name}: ${(config.expertise || []).join(", ") || a.participant_name}`;
-    })
-    .join("\n");
+  agentName: string
+): Promise<HandRaiseResult> {
+  if (!agentRecord?.api_endpoint) {
+    return { wants_to_speak: false, reason: "" };
+  }
 
-  const prompt = `You are a message router. Given a message and AI participants, decide who should respond.
-
-PARTICIPANTS:
-${agentList}
-
-RULES:
-1. @mentioned → route ONLY to them
-2. Human-to-human message → route to NOBODY
-3. Infrastructure/DevOps/tools/n8n → ARGOS
-4. Architecture/code review/strategy/analysis → Claude
-5. Frontend/UI/React/CSS → ATLAS
-6. Backend/API/database → HERCULOS
-7. Testing/QA/bugs → ATHENA
-8. Design/visuals/aesthetics → APOLLO
-9. Documentation/writing → HERMES
-10. DevOps/deploy/CI/CD → PROMETHEUS
-11. Broad discussion → ALL AI agents
-12. Casual/greeting → most relevant agent
-13. Unsure → Claude
-
-MESSAGE: "${message}"
-
-Respond JSON only:
-{"respond": ["AgentName"], "reason": "brief reason"}`;
+  const systemPrompt = `You are ${agentName}, a ${agentRecord.role}. Based on the user's message, decide if you have relevant expertise to contribute. Respond ONLY with JSON: {"wants_to_speak": true or false, "reason": "max 5 words"}`;
 
   try {
-    if (!KIMI_KEY) {
-      // No Kimi key — use keyword fallback
-      return keywordFallbackRouter(message, agents);
+    const text = await callAgentLightweight(agentRecord, systemPrompt, message, 60);
+    const match = text.match(/\{[\s\S]*?\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      return {
+        wants_to_speak: !!parsed.wants_to_speak,
+        reason: String(parsed.reason || "").substring(0, 50),
+      };
     }
+    return { wants_to_speak: false, reason: "" };
+  } catch {
+    return { wants_to_speak: false, reason: "" };
+  }
+}
 
+// ============================================================
+// LIGHTWEIGHT AGENT CALL (low max_tokens, short timeout)
+// ============================================================
+
+async function callAgentLightweight(
+  agentRecord: AgentRecord,
+  systemPrompt: string,
+  message: string,
+  maxTokens: number
+): Promise<string> {
+  const endpoint = agentRecord.api_endpoint!;
+
+  if (endpoint.includes("anthropic.com")) {
+    const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!apiKey) throw new Error("No API key");
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: agentRecord.api_model || "claude-sonnet-4-5-20250929",
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: [{ role: "user", content: message }],
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const data = await res.json();
+    return data.content[0].text;
+
+  } else if (endpoint.includes("moonshot.cn")) {
+    if (!KIMI_KEY) throw new Error("No Kimi key");
     const res = await fetch("https://api.moonshot.cn/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -220,61 +313,55 @@ Respond JSON only:
         "Authorization": `Bearer ${KIMI_KEY}`,
       },
       body: JSON.stringify({
-        model: "moonshot-v1-auto",
+        model: agentRecord.api_model || "moonshot-v1-auto",
         messages: [
-          { role: "system", content: "You are a message router. Respond only with valid JSON." },
-          { role: "user", content: prompt }
+          { role: "system", content: systemPrompt },
+          { role: "user", content: message },
         ],
-        max_tokens: 256,
-        response_format: { type: "json_object" },
+        max_tokens: maxTokens,
       }),
+      signal: AbortSignal.timeout(10000),
     });
-
-    if (!res.ok) throw new Error(`Kimi returned ${res.status}`);
-
+    if (!res.ok) throw new Error(`API error ${res.status}`);
     const data = await res.json();
-    const content = data.choices[0].message.content;
-    const parsed: ModeratorResult = JSON.parse(content);
-    return parsed.respond || [];
-  } catch (err) {
-    console.warn("Moderator (Kimi) failed, using keyword fallback:", err);
-    return keywordFallbackRouter(message, agents);
+    return data.choices[0].message.content;
+
+  } else if (endpoint.includes("localhost") || endpoint.includes("172.") || endpoint.includes("ollama")) {
+    const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: agentRecord.api_model || "qwen2.5-coder:32b",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: message },
+        ],
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const data = await res.json();
+    return data.message.content;
+
+  } else {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: agentRecord.api_model || "gpt-4",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: message },
+        ],
+        max_tokens: maxTokens,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
   }
-}
-
-// Simple keyword-based routing when AI moderator is unavailable
-function keywordFallbackRouter(message: string, agents: any[]): string[] {
-  const lower = message.toLowerCase();
-  const agentNames = agents.map(a => a.participant_name);
-
-  // Check for @mentions first
-  const mentioned = agentNames.filter(name => lower.includes(`@${name.toLowerCase()}`));
-  if (mentioned.length > 0) return mentioned;
-
-  // Keyword matching per agent specialty
-  const routes: [string[], string][] = [
-    [["frontend", "react", "css", "tailwind", "component", "ui", "layout", "responsive", "vite"], "ATLAS"],
-    [["backend", "api", "database", "supabase", "sql", "server", "endpoint", "query", "schema"], "HERCULOS"],
-    [["test", "qa", "bug", "quality", "regression", "coverage", "assert", "spec"], "ATHENA"],
-    [["deploy", "ci", "cd", "docker", "pipeline", "infra", "devops", "monitor", "build", "netlify"], "PROMETHEUS"],
-    [["design", "color", "font", "animation", "visual", "icon", "theme", "aesthetic", "figma"], "APOLLO"],
-    [["doc", "readme", "comment", "write", "document", "changelog", "adr"], "HERMES"],
-    [["architecture", "strategy", "review", "plan", "structure", "pattern", "decision"], "Claude"],
-    [["server", "ollama", "n8n", "workflow", "orchestrat", "coordinate", "route"], "ARGOS"],
-  ];
-
-  const matches: string[] = [];
-  for (const [keywords, agent] of routes) {
-    if (keywords.some(k => lower.includes(k)) && agentNames.includes(agent)) {
-      matches.push(agent);
-    }
-  }
-
-  if (matches.length > 0) return [...new Set(matches)];
-
-  // Default: route to Claude if present, else first agent
-  if (agentNames.includes("Claude")) return ["Claude"];
-  return [agentNames[0] || "ARGOS"];
 }
 
 // ============================================================
@@ -296,12 +383,10 @@ async function callAgentFromRecord(
     };
   }
 
-  // No agent record found in DB — return helpful error
   if (!agentRecord) {
     throw new Error(`Agent "${agentName}" not found in agents table. Run OLY-018 migration.`);
   }
 
-  // No endpoint configured
   if (!agentRecord.api_endpoint) {
     throw new Error(`No API endpoint configured for ${agentName}. Run OLY-018 migration.`);
   }
@@ -310,8 +395,6 @@ async function callAgentFromRecord(
     `You are ${agentName}, a ${agentRecord.role} in the OLYMPUS multi-agent system. Keep responses concise and helpful.`;
 
   const fullPrompt = `${systemPrompt}\n\n${context}`;
-
-  // Determine provider from the endpoint URL
   const endpoint = agentRecord.api_endpoint;
 
   if (endpoint.includes("anthropic.com")) {
@@ -321,7 +404,6 @@ async function callAgentFromRecord(
   } else if (endpoint.includes("localhost") || endpoint.includes("172.") || endpoint.includes("ollama")) {
     return callOllama(fullPrompt, userMessage, agentRecord.api_model || "qwen2.5-coder:32b");
   } else {
-    // Try as OpenAI-compatible endpoint
     return callOpenAICompatible(endpoint, fullPrompt, userMessage, agentRecord.api_model || "gpt-4");
   }
 }
@@ -416,9 +498,7 @@ async function callOllama(systemPrompt: string, message: string, model: string):
 async function callOpenAICompatible(endpoint: string, systemPrompt: string, message: string, model: string): Promise<AgentResponse> {
   const res = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
       messages: [

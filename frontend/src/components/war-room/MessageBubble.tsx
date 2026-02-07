@@ -48,6 +48,11 @@ export function MessageBubble({ message, isOwnMessage }: Props) {
               {message.metadata.model_used}
             </span>
           )}
+          {message.metadata?.discussion_summary && (
+            <span className="text-[9px] md:text-[10px] px-1 py-0.5 rounded bg-[rgba(139,92,246,0.15)] border border-[rgba(139,92,246,0.3)] text-[rgba(139,92,246,0.9)] font-mono">
+              📋 Summary
+            </span>
+          )}
           {isVoiceTranscribed && (
             <span className="text-[9px] md:text-[10px] px-1 py-0.5 rounded bg-[rgba(184,150,90,0.15)] border border-primary/20 text-primary font-mono">
               🎤

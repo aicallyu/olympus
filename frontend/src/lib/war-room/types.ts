@@ -17,6 +17,8 @@ export interface WarRoomParticipant {
   participant_config: AgentConfig | HumanConfig;
   is_active: boolean;
   joined_at: string;
+  hand_raised: boolean;
+  hand_reason: string | null;
 }
 
 export interface AgentConfig {
@@ -55,4 +57,11 @@ export interface MessageMetadata {
   original_type?: string;
   voice_transcribed?: boolean;
   error?: boolean;
+  // Discussion fields
+  discussion?: boolean;
+  discussion_id?: string;
+  discussion_summary?: boolean;
+  discussion_topic?: string;
+  discussion_deliverable?: string;
+  discussion_agent_count?: number;
 }
