@@ -1,10 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { AgentDetailCard } from '@/components/agents/AgentDetailCard'
+import { AgentProfileModal } from '@/components/agents/AgentProfileModal'
 import { useOlympusStore } from '@/hooks/useOlympusStore'
 
 export function AgentStatus() {
   const agents = useOlympusStore((state) => state.agents)
   const fetchAgents = useOlympusStore((state) => state.fetchAgents)
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchAgents()
@@ -19,10 +21,21 @@ export function AgentStatus() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {agents.map((agent) => (
-          <AgentDetailCard key={agent.id} agent={agent} />
-        ))}
+        {agents
+          .filter((agent) => !agent.sessionKey?.startsWith('human:'))
+          .map((agent) => (
+            <div key={agent.id} onClick={() => setSelectedAgentId(agent.id)} className="cursor-pointer">
+              <AgentDetailCard agent={agent} />
+            </div>
+          ))}
       </div>
+
+      {selectedAgentId && (
+        <AgentProfileModal
+          agentId={selectedAgentId}
+          onClose={() => setSelectedAgentId(null)}
+        />
+      )}
     </div>
   )
 }

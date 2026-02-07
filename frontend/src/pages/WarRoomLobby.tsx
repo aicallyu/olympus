@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { MessageCircle, Plus, Users } from 'lucide-react';
+import { useOlympusStore } from '@/hooks/useOlympusStore';
 
 const PARTICIPANT_AVATARS: Record<string, string> = {
   ARGOS: '🔱',
@@ -34,6 +35,7 @@ interface Room {
 
 export function WarRoomLobby() {
   const navigate = useNavigate();
+  const showToast = useOlympusStore((state) => state.showToast);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
@@ -101,67 +103,71 @@ export function WarRoomLobby() {
 
     setIsCreating(true);
 
-    // 1. Create the war room
-    const { data: room, error: roomError } = await supabase
-      .from('war_rooms')
-      .insert({
-        name: roomName,
-        description: `Discussion with ${selectedAgents.join(', ')}`,
-        routing_mode: 'moderated',
-      })
-      .select()
-      .single();
+    try {
+      // 1. Create the war room
+      const { data: room, error: roomError } = await supabase
+        .from('war_rooms')
+        .insert({
+          name: roomName,
+          description: `Discussion with ${selectedAgents.join(', ')}`,
+          routing_mode: 'moderated',
+        })
+        .select()
+        .single();
 
-    if (roomError || !room) {
-      console.error('Failed to create war room:', roomError);
-      setIsCreating(false);
-      return;
-    }
+      if (roomError || !room) {
+        console.error('Failed to create war room:', roomError);
+        showToast(roomError?.message || 'Failed to create war room', 'error');
+        setIsCreating(false);
+        return;
+      }
 
-    // 2. Build participant inserts from selected names
-    const participantInserts = selectedAgents.map((name) => {
-      const agent = dbAgents.find((a) => a.name === name);
-      const isHuman = agent?.session_key.startsWith('human:');
-      return {
-        room_id: room.id,
-        participant_type: isHuman ? 'human' : 'agent',
-        participant_name: name,
-        participant_config: isHuman
-          ? { role: agent?.role }
-          : { voice_enabled: true },
-      };
-    });
-
-    const { error: participantsError } = await supabase
-      .from('war_room_participants')
-      .insert(participantInserts);
-
-    if (participantsError) {
-      console.error('Failed to add participants:', participantsError);
-    }
-
-    // 3. Create system message
-    const { error: messageError } = await supabase
-      .from('war_room_messages')
-      .insert({
-        room_id: room.id,
-        sender_name: 'System',
-        sender_type: 'system',
-        content: `War Room "${roomName}" created. Participants: ${selectedAgents.join(', ')}.`,
-        content_type: 'text',
-        metadata: { event: 'room_created' },
+      // 2. Build participant inserts from selected names
+      const participantInserts = selectedAgents.map((name) => {
+        const agent = dbAgents.find((a) => a.name === name);
+        const isHuman = agent?.session_key?.startsWith('human:') ?? false;
+        return {
+          room_id: room.id,
+          participant_type: isHuman ? 'human' : 'agent',
+          participant_name: name,
+          participant_config: isHuman
+            ? { role: agent?.role }
+            : { voice_enabled: true },
+        };
       });
 
-    if (messageError) {
-      console.error('Failed to create system message:', messageError);
+      const { error: participantsError } = await supabase
+        .from('war_room_participants')
+        .insert(participantInserts);
+
+      if (participantsError) {
+        console.error('Failed to add participants:', participantsError);
+      }
+
+      // 3. Create system message
+      await supabase
+        .from('war_room_messages')
+        .insert({
+          room_id: room.id,
+          sender_name: 'System',
+          sender_type: 'system',
+          content: `War Room "${roomName}" created. Participants: ${selectedAgents.join(', ')}.`,
+          content_type: 'text',
+          metadata: { event: 'room_created' },
+        });
+
+      showToast('War Room created', 'success');
+      setIsCreating(false);
+      setShowCreateModal(false);
+      setRoomName('');
+      setSelectedAgents([]);
+
+      navigate(`/war-room/${room.id}`);
+    } catch (err) {
+      console.error('Error creating war room:', err);
+      showToast('Failed to create war room', 'error');
+      setIsCreating(false);
     }
-
-    setIsCreating(false);
-    setShowCreateModal(false);
-    setRoomName('');
-    setSelectedAgents([]);
-
-    navigate(`/war-room/${room.id}`);
   }
 
   function toggleAgent(agentName: string) {

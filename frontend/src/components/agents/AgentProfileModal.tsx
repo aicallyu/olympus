@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { X, Zap, ShieldCheck, ShieldAlert } from 'lucide-react'
+import { X, Zap, ShieldCheck, ShieldAlert, Loader2 } from 'lucide-react'
 import { useOlympusStore } from '@/hooks/useOlympusStore'
 import { supabase } from '@/lib/supabase'
 
@@ -8,10 +8,35 @@ interface AgentProfileModalProps {
   onClose: () => void
 }
 
+const AGENT_EMOJIS: Record<string, string> = {
+  ARGOS: '🔱',
+  ATLAS: '🏛️',
+  HERCULOS: '⚙️',
+  ATHENA: '🦉',
+  PROMETHEUS: '🔥',
+  APOLLO: '🎨',
+  HERMES: '📜',
+  Claude: '🧠',
+}
+
+const SOUL_DESCRIPTIONS: Record<string, string> = {
+  ARGOS: 'Master orchestrator of the OLYMP system. Strategic, decisive, and focused on mission success. Direct communication style with dry wit.',
+  ATLAS: 'Frontend engineering specialist. Detail-oriented, pixel-perfect implementation, obsessed with user experience and responsive design.',
+  HERCULOS: 'Backend forge master. Builds robust APIs and database architectures. Values reliability, performance, and clean code above all.',
+  ATHENA: 'Quality assurance and strategic wisdom. Analytical, thorough, and relentless in pursuit of excellence. No bug escapes her notice.',
+  PROMETHEUS: 'DevOps and automation fire-bringer. Infrastructure as code, CI/CD pipelines, and deployment automation are his domain.',
+  APOLLO: 'Design and visual arts specialist. Creates premium aesthetics, animations, and user interfaces that feel divine.',
+  HERMES: 'Documentation and communication messenger. Ensures knowledge is captured, organized, and accessible to all agents and humans.',
+  Claude: 'Architecture and strategy advisor. Provides high-level design guidance, code review, and strategic direction for the team.',
+}
+
 export function AgentProfileModal({ agentId, onClose }: AgentProfileModalProps) {
   const agent = useOlympusStore((state) => state.agents.find((a) => a.id === agentId))
+  const fetchAgents = useOlympusStore((state) => state.fetchAgents)
+  const showToast = useOlympusStore((state) => state.showToast)
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -21,7 +46,7 @@ export function AgentProfileModal({ agentId, onClose }: AgentProfileModalProps) 
           .select('*')
           .eq('id', agentId)
           .single()
-        
+
         if (!error && data) {
           setProfile(data)
         }
@@ -33,6 +58,58 @@ export function AgentProfileModal({ agentId, onClose }: AgentProfileModalProps) 
     }
     fetchProfile()
   }, [agentId])
+
+  const handleRestartSession = async () => {
+    setActionLoading('restart')
+    try {
+      const { error } = await supabase
+        .from('agents')
+        .update({ status: 'idle', current_task_id: null, updated_at: new Date().toISOString() })
+        .eq('id', agentId)
+
+      if (error) throw error
+
+      showToast(`${agent?.name} session restarted`, 'success')
+      await fetchAgents()
+    } catch (err) {
+      console.error('Error restarting session:', err)
+      showToast('Failed to restart session', 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleEscalateModel = async () => {
+    if (!agent?.modelEscalation || !profile?.model_primary) {
+      showToast('No escalation model configured', 'info')
+      return
+    }
+
+    const escalationModel = profile.model_escalation
+    if (!escalationModel || escalationModel === profile.model_primary) {
+      showToast('Already at escalation model', 'info')
+      return
+    }
+
+    setActionLoading('escalate')
+    try {
+      const { error } = await supabase
+        .from('agents')
+        .update({ model_primary: escalationModel, updated_at: new Date().toISOString() })
+        .eq('id', agentId)
+
+      if (error) throw error
+
+      showToast(`${agent?.name} escalated to ${escalationModel.split('/').pop()}`, 'success')
+      setProfile((prev: any) => prev ? { ...prev, model_primary: escalationModel } : prev)
+      await fetchAgents()
+    } catch (err) {
+      console.error('Error escalating model:', err)
+      showToast('Failed to escalate model', 'error')
+    } finally {
+      setActionLoading(null)
+    }
+  }
 
   if (!agent) return null
 
@@ -69,7 +146,7 @@ export function AgentProfileModal({ agentId, onClose }: AgentProfileModalProps) 
           {/* Header */}
           <div className="flex items-center gap-4">
             <div className="h-16 w-16 rounded-full border-2 border-primary bg-[rgba(184,150,90,0.15)] flex items-center justify-center">
-              <span className="text-3xl">{agent.name === 'ARGOS' ? '🔱' : agent.name === 'ATLAS' ? '🏛️' : agent.name === 'HERCULOS' ? '⚙️' : agent.name === 'ATHENA' ? '🦉' : agent.name === 'PROMETHEUS' ? '🔥' : agent.name === 'APOLLO' ? '🎨' : '📜'}</span>
+              <span className="text-3xl">{AGENT_EMOJIS[agent.name] || '📜'}</span>
             </div>
             <div>
               <h2 className="text-xl font-display text-text-primary">{agent.name}</h2>
@@ -113,17 +190,11 @@ export function AgentProfileModal({ agentId, onClose }: AgentProfileModalProps) 
           <div className="glass-panel p-4">
             <h4 className="font-mono text-xs uppercase tracking-[0.2em] text-text-muted mb-2">SOUL Personality</h4>
             <p className="text-sm text-text-primary leading-relaxed">
-              {agent.name === 'ARGOS' && 'Master orchestrator of the OLYMP system. Strategic, decisive, and focused on mission success. Direct communication style with dry wit.'}
-              {agent.name === 'ATLAS' && 'Frontend engineering specialist. Detail-oriented, pixel-perfect implementation, obsessed with user experience and responsive design.'}
-              {agent.name === 'HERCULOS' && 'Backend forge master. Builds robust APIs and database architectures. Values reliability, performance, and clean code above all.'}
-              {agent.name === 'ATHENA' && 'Quality assurance and strategic wisdom. Analytical, thorough, and relentless in pursuit of excellence. No bug escapes her notice.'}
-              {agent.name === 'PROMETHEUS' && 'DevOps and automation fire-bringer. Infrastructure as code, CI/CD pipelines, and deployment automation are his domain.'}
-              {agent.name === 'APOLLO' && 'Design and visual arts specialist. Creates premium aesthetics, animations, and user interfaces that feel divine.'}
-              {agent.name === 'HERMES' && 'Documentation and communication messenger. Ensures knowledge is captured, organized, and accessible to all agents and humans.'}
+              {SOUL_DESCRIPTIONS[agent.name] || `${agent.role} agent in the OLYMP system.`}
             </p>
           </div>
 
-          {/* Current Task */}
+          {/* Current Status */}
           <div className="glass-panel p-4">
             <h4 className="font-mono text-xs uppercase tracking-[0.2em] text-text-muted mb-2">Current Status</h4>
             <p className="text-sm text-text-primary">{agent.heartbeat}</p>
@@ -134,11 +205,27 @@ export function AgentProfileModal({ agentId, onClose }: AgentProfileModalProps) 
 
           {/* Actions */}
           <div className="flex gap-3">
-            <button className="flex-1 btn-secondary py-3 font-mono uppercase tracking-[0.2em] text-xs">
-              Restart Session
+            <button
+              onClick={handleRestartSession}
+              disabled={actionLoading !== null}
+              className="flex-1 btn-secondary py-3 font-mono uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {actionLoading === 'restart' ? (
+                <><Loader2 size={14} className="animate-spin" /> Restarting...</>
+              ) : (
+                'Restart Session'
+              )}
             </button>
-            <button className="flex-1 btn-primary py-3 font-mono uppercase tracking-[0.2em] text-xs">
-              Escalate Model
+            <button
+              onClick={handleEscalateModel}
+              disabled={actionLoading !== null}
+              className="flex-1 btn-primary py-3 font-mono uppercase tracking-[0.2em] text-xs flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {actionLoading === 'escalate' ? (
+                <><Loader2 size={14} className="animate-spin" /> Escalating...</>
+              ) : (
+                'Escalate Model'
+              )}
             </button>
           </div>
         </div>
