@@ -27,6 +27,8 @@ export interface OlympusAgent {
   reliability: number
   efficiency: number
   trend: number[]
+  sessionKey?: string
+  modelEscalation?: string
 }
 
 export interface OlympusTask {
@@ -117,20 +119,41 @@ function timeAgo(date: string): string {
   return `${Math.floor(seconds / 86400)}d ago`
 }
 
+// Seeded per-agent placeholder stats (until real metrics exist)
+const agentPlaceholderStats: Record<string, { reliability: number; efficiency: number; tasksCompleted: number; trend: number[] }> = {
+  ARGOS:      { reliability: 98, efficiency: 95, tasksCompleted: 42, trend: [88, 90, 91, 93, 95, 96, 98] },
+  ATLAS:      { reliability: 94, efficiency: 91, tasksCompleted: 37, trend: [78, 82, 85, 88, 90, 92, 94] },
+  ATHENA:     { reliability: 99, efficiency: 88, tasksCompleted: 51, trend: [90, 92, 94, 95, 97, 98, 99] },
+  HERCULOS:   { reliability: 96, efficiency: 93, tasksCompleted: 45, trend: [82, 85, 88, 90, 92, 94, 96] },
+  PROMETHEUS: { reliability: 92, efficiency: 97, tasksCompleted: 33, trend: [75, 80, 84, 87, 90, 93, 97] },
+  APOLLO:     { reliability: 91, efficiency: 86, tasksCompleted: 28, trend: [70, 74, 78, 82, 85, 88, 91] },
+  HERMES:     { reliability: 97, efficiency: 94, tasksCompleted: 56, trend: [85, 88, 90, 92, 94, 95, 97] },
+  Claude:     { reliability: 99, efficiency: 96, tasksCompleted: 18, trend: [92, 94, 95, 96, 97, 98, 99] },
+}
+
+const defaultStats = { reliability: 90, efficiency: 85, tasksCompleted: 0, trend: [80, 82, 85, 87, 90, 92, 95] }
+
 // Helper to map DB agent to frontend agent
-function mapAgent(dbAgent: any): OlympusAgent {
+function mapAgent(dbAgent: any, metrics?: any): OlympusAgent {
+  const placeholder = agentPlaceholderStats[dbAgent.name] || defaultStats
+  const lastActivity = dbAgent.last_activity_at
+    ? timeAgo(dbAgent.last_activity_at)
+    : 'awaiting'
+
   return {
     id: dbAgent.id,
     name: dbAgent.name,
     role: dbAgent.role,
-    status: dbAgent.status,
+    status: dbAgent.status || 'idle',
     model: dbAgent.model_primary?.split('/').pop() || 'Unknown',
-    heartbeat: '00:00:00',
-    specialization: dbAgent.specialization || 'General',
-    tasksCompleted: 0,
-    reliability: 95,
-    efficiency: 90,
-    trend: [80, 82, 85, 87, 90, 92, 95],
+    heartbeat: lastActivity,
+    specialization: dbAgent.specialization || dbAgent.role || 'General',
+    tasksCompleted: metrics?.tasks_completed ?? placeholder.tasksCompleted,
+    reliability: metrics?.reliability ?? placeholder.reliability,
+    efficiency: metrics?.efficiency ?? placeholder.efficiency,
+    trend: placeholder.trend,
+    sessionKey: dbAgent.session_key,
+    modelEscalation: dbAgent.model_escalation,
   }
 }
 
@@ -192,10 +215,21 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
         .from('agents')
         .select('*')
         .order('name')
-      
+
       if (error) throw error
-      
-      const mappedAgents = (data || []).map(mapAgent)
+
+      // Try to fetch metrics for each agent
+      let metricsMap: Record<string, any> = {}
+      const { data: metricsData } = await supabase
+        .from('agent_metrics')
+        .select('*')
+      if (metricsData) {
+        for (const m of metricsData) {
+          metricsMap[m.agent_id] = m
+        }
+      }
+
+      const mappedAgents = (data || []).map((a: any) => mapAgent(a, metricsMap[a.id]))
       set({ agents: mappedAgents })
     } catch (error) {
       console.error('Error fetching agents:', error)
@@ -224,14 +258,15 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
   createTask: async (taskData) => {
     set({ isLoading: true })
     try {
+      const assigneeId = taskData.assignee || null
+
       const payload = {
         title: taskData.title,
-        description: taskData.description,
+        description: taskData.description || null,
         priority: taskData.priority,
-        assignee_id: taskData.assignee === 'Unassigned' ? null : taskData.assignee,
-        status: taskData.assignee && taskData.assignee !== 'Unassigned' ? 'assigned' : 'inbox',
-        created_by: 'ARGOS',
-        created_at: new Date().toISOString(),
+        assignee_id: assigneeId,
+        status: assigneeId ? 'assigned' : 'inbox',
+        created_by: 'system',
       }
 
       const { data, error } = await supabase

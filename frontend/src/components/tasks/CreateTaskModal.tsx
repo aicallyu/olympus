@@ -10,7 +10,7 @@ export function CreateTaskModal({ onClose }: CreateTaskModalProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [priority, setPriority] = useState<TaskPriority>('normal')
-  const [assignee, setAssignee] = useState('Unassigned')
+  const [assignee, setAssignee] = useState('')
   const [titleError, setTitleError] = useState('')
   
   const createTask = useOlympusStore((state) => state.createTask)
@@ -54,7 +54,7 @@ export function CreateTaskModal({ onClose }: CreateTaskModalProps) {
       title: title.trim(),
       description: description.trim() || undefined,
       priority,
-      assignee: assignee === 'Unassigned' ? undefined : assignee,
+      assignee: assignee || undefined,
     })
     
     if (success) {
@@ -137,9 +137,9 @@ export function CreateTaskModal({ onClose }: CreateTaskModalProps) {
               disabled={isLoading}
               className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-text-primary focus:border-primary focus:outline-none transition-colors"
             >
-              <option value="Unassigned">Unassigned</option>
+              <option value="">Unassigned</option>
               {agents.map((agent) => (
-                <option key={agent.id} value={agent.name}>
+                <option key={agent.id} value={agent.id}>
                   {agent.name} ({agent.role})
                 </option>
               ))}

@@ -158,7 +158,7 @@ export function TaskDetailModal({ task, onClose }: TaskDetailModalProps) {
             </div>
             
             {/* Clickable Status */}
-            <div className="glass-panel p-3 flex-1 relative">
+            <div className={`glass-panel p-3 flex-1 relative ${showStatusDropdown ? 'z-30' : ''}`}>
               <p className="font-mono text-xs uppercase tracking-[0.2em] text-text-muted">Status</p>
               <button
                 onClick={() => {
@@ -205,7 +205,7 @@ export function TaskDetailModal({ task, onClose }: TaskDetailModalProps) {
           )}
 
           {/* Assignee with Dropdown */}
-          <div className="glass-panel p-4 relative">
+          <div className={`glass-panel p-4 relative ${showAssigneeDropdown ? 'z-30' : ''}`}>
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-text-muted mb-2">Assigned To</p>
             <button
               onClick={() => {
