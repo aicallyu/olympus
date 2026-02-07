@@ -76,13 +76,13 @@ export function WarRoomLobby() {
             .select('*', { count: 'exact', head: true })
             .eq('room_id', room.id);
 
-          const { data: lastMessage } = await supabase
+          const { data: lastMessages } = await supabase
             .from('war_room_messages')
             .select('created_at')
             .eq('room_id', room.id)
             .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
+            .limit(1);
+          const lastMessage = lastMessages && lastMessages.length > 0 ? lastMessages[0] : null;
 
           return {
             id: room.id,
