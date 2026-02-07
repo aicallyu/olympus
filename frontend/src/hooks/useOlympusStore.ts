@@ -1,7 +1,35 @@
 import { create } from 'zustand'
 
-export type TaskStatus = 'inbox' | 'assigned' | 'in_progress' | 'review' | 'done' | 'blocked'
+export type TaskStatus =
+  | 'inbox' | 'assigned' | 'in_progress'
+  | 'build_check' | 'deploy_check' | 'perception_check' | 'human_checkpoint'
+  | 'done' | 'auto_fix' | 'escalated' | 'rejected'
+  | 'review' | 'blocked'
+
 export type TaskPriority = 'low' | 'normal' | 'high' | 'critical'
+
+export type TaskType = 'frontend' | 'backend' | 'deployment'
+
+export interface AcceptanceCriterion {
+  id: string
+  criterion: string
+  type: 'browser_test' | 'build_check' | 'code_check'
+  test_selector?: string
+  test_action?: string
+  expected_result?: string
+  verified: boolean
+  verified_by: string | null
+  verified_at: string | null
+  evidence_url: string | null
+}
+
+export interface GateStatus {
+  status: 'pending' | 'running' | 'passed' | 'failed'
+  attempts: number
+  max_attempts: number
+  last_error: string | null
+  passed_at: string | null
+}
 export type AgentStatus = 'idle' | 'active' | 'blocked'
 export type ActivityType = 'task' | 'system' | 'alert' | 'heartbeat' | 'review'
 
@@ -39,6 +67,9 @@ export interface OlympusTask {
   created: string
   created_at?: string
   tags: string[]
+  project_id?: string
+  acceptance_criteria?: AcceptanceCriterion[]
+  gate_status?: Record<string, GateStatus>
 }
 
 export interface OlympusActivity {
@@ -83,7 +114,7 @@ interface OlympusStore {
   // API Actions
   fetchTasks: () => Promise<void>
   fetchAgents: () => Promise<void>
-  createTask: (task: { title: string; description?: string; priority: TaskPriority; assignee?: string }) => Promise<boolean>
+  createTask: (task: { title: string; description?: string; priority: TaskPriority; assignee?: string; acceptance_criteria?: AcceptanceCriterion[] }) => Promise<boolean>
   updateTaskStatus: (taskId: string, status: TaskStatus) => Promise<boolean>
   assignTask: (taskId: string, agentId: string) => Promise<boolean>
   moveTask: (taskId: string, status: TaskStatus) => void
@@ -150,6 +181,9 @@ function mapTask(dbTask: any, agents: OlympusAgent[]): OlympusTask {
     created: timeAgo(dbTask.created_at),
     created_at: dbTask.created_at,
     tags: dbTask.tags || [],
+    project_id: dbTask.project_id,
+    acceptance_criteria: dbTask.acceptance_criteria || [],
+    gate_status: dbTask.gate_status,
   }
 }
 
@@ -222,6 +256,7 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
         assignee: taskData.assignee === 'Unassigned' ? null : taskData.assignee,
         status: taskData.assignee && taskData.assignee !== 'Unassigned' ? 'assigned' : 'inbox',
         created_by: 'ARGOS',
+        acceptance_criteria: taskData.acceptance_criteria || [],
       }
 
       const response = await fetch('/api/tasks', {

@@ -2,16 +2,39 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { supabase } from '../db/client.js';
 
+const acceptanceCriterionSchema = z.object({
+  id: z.string(),
+  criterion: z.string(),
+  type: z.enum(['browser_test', 'build_check', 'code_check']),
+  test_selector: z.string().optional(),
+  test_action: z.string().optional(),
+  expected_result: z.string().optional(),
+  verified: z.boolean().default(false),
+  verified_by: z.string().nullable().default(null),
+  verified_at: z.string().nullable().default(null),
+  evidence_url: z.string().nullable().default(null),
+});
+
 const taskSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional().nullable(),
   priority: z.enum(['low', 'normal', 'high', 'critical']).default('normal'),
   assignee: z.string().optional().nullable(),
-  status: z.enum(['inbox', 'assigned', 'in_progress', 'review', 'done', 'blocked']).optional(),
+  status: z.enum([
+    'inbox', 'assigned', 'in_progress', 'build_check', 'deploy_check',
+    'perception_check', 'human_checkpoint', 'done', 'auto_fix',
+    'escalated', 'rejected', 'review', 'blocked',
+  ]).optional(),
   created_by: z.string().optional(),
+  project_id: z.string().default('olymp'),
+  acceptance_criteria: z.array(acceptanceCriterionSchema).default([]),
 });
 
-const statusSchema = z.enum(['inbox', 'assigned', 'in_progress', 'review', 'done', 'blocked']);
+const statusSchema = z.enum([
+  'inbox', 'assigned', 'in_progress', 'build_check', 'deploy_check',
+  'perception_check', 'human_checkpoint', 'done', 'auto_fix',
+  'escalated', 'rejected', 'review', 'blocked',
+]);
 
 const isUuid = (value: string): boolean => z.string().uuid().safeParse(value).success;
 
@@ -99,7 +122,7 @@ taskRoutes.post('/', async (c) => {
     return c.json({ error: 'Invalid input', details: parsed.error }, 400);
   }
 
-  const { title, description, priority, assignee, status, created_by } = parsed.data;
+  const { title, description, priority, assignee, status, created_by, project_id, acceptance_criteria } = parsed.data;
   const assigneeInput = typeof assignee === 'string' ? assignee : undefined;
 
   let assigneeId: string | undefined;
@@ -125,6 +148,8 @@ taskRoutes.post('/', async (c) => {
         status: finalStatus,
         created_by: created_by || 'ARGOS',
         completed_at: completedAt,
+        project_id,
+        acceptance_criteria,
       },
     ])
     .select()

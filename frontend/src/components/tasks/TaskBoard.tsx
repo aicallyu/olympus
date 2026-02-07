@@ -40,17 +40,11 @@ export function TaskBoard() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const tasksByStatus = useMemo(() => {
-    return columns.reduce<Record<TaskStatus, OlympusTask[]>>((acc, column) => {
-      acc[column.id] = tasks.filter((task) => task.status === column.id)
-      return acc
-    }, {
-      inbox: [],
-      assigned: [],
-      in_progress: [],
-      review: [],
-      done: [],
-      blocked: [],
-    })
+    const grouped: Partial<Record<TaskStatus, OlympusTask[]>> = {}
+    for (const column of columns) {
+      grouped[column.id] = tasks.filter((task) => task.status === column.id)
+    }
+    return grouped
   }, [columns, tasks])
 
   const activeColumn = columns.find((column) => column.id === activeStatus) ?? columns[0]
@@ -146,7 +140,7 @@ export function TaskBoard() {
               }`}
             >
               {column.label}
-              <span className="ml-2 text-text-muted">{tasksByStatus[column.id].length}</span>
+              <span className="ml-2 text-text-muted">{(tasksByStatus[column.id] ?? []).length}</span>
             </button>
           ))}
         </div>
@@ -158,7 +152,7 @@ export function TaskBoard() {
               columnId={activeColumn.id}
               label={activeColumn.label}
               description={activeColumn.description}
-              tasks={tasksByStatus[activeColumn.id]}
+              tasks={tasksByStatus[activeColumn.id] ?? []}
               isCompact
             />
           ) : null}
@@ -172,7 +166,7 @@ export function TaskBoard() {
               columnId={column.id}
               label={column.label}
               description={column.description}
-              tasks={tasksByStatus[column.id]}
+              tasks={tasksByStatus[column.id] ?? []}
             />
           ))}
         </div>
