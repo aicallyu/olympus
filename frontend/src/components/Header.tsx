@@ -6,6 +6,7 @@ const navItems = [
   { path: '/', label: 'OVERVIEW' },
   { path: '/tasks', label: 'TASK BOARD' },
   { path: '/agents', label: 'AGENTS' },
+  { path: '/war-room', label: 'WAR ROOM' },
   { path: '/activity', label: 'ACTIVITY' },
 ]
 
