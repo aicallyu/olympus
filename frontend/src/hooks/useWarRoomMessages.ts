@@ -1,31 +1,76 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useUser } from '@/contexts/UserContext';
 import type { WarRoomMessage } from '@/lib/war-room/types';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
+
+const PAGE_SIZE = 50;
 
 export function useWarRoomMessages(roomId: string) {
   const [messages, setMessages] = useState<WarRoomMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { user } = useUser();
-  const senderName = user?.name || 'Guest';
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const loadingMoreRef = useRef(false);
 
-  // Load initial messages
+  // Load initial messages (most recent PAGE_SIZE, reversed to chronological)
   useEffect(() => {
     async function loadMessages() {
       setIsLoading(true);
+      setHasMore(true);
+
       const { data } = await supabase
         .from('war_room_messages')
         .select('*')
         .eq('room_id', roomId)
-        .order('created_at', { ascending: true })
-        .limit(100);
+        .order('created_at', { ascending: false })
+        .limit(PAGE_SIZE);
 
-      if (data) setMessages(data);
+      if (data) {
+        setMessages(data.reverse());
+        setHasMore(data.length === PAGE_SIZE);
+      }
       setIsLoading(false);
     }
     loadMessages();
   }, [roomId]);
+
+  // Load older messages (called when user scrolls to top)
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore) return;
+    loadingMoreRef.current = true;
+    setIsLoadingMore(true);
+
+    const oldest = messages[0];
+    if (!oldest) {
+      setIsLoadingMore(false);
+      loadingMoreRef.current = false;
+      return;
+    }
+
+    const { data } = await supabase
+      .from('war_room_messages')
+      .select('*')
+      .eq('room_id', roomId)
+      .lt('created_at', oldest.created_at)
+      .order('created_at', { ascending: false })
+      .limit(PAGE_SIZE);
+
+    if (data && data.length > 0) {
+      const older = data.reverse();
+      setMessages(prev => {
+        // Deduplicate in case realtime added one in between
+        const existingIds = new Set(prev.map(m => m.id));
+        const unique = older.filter(m => !existingIds.has(m.id));
+        return [...unique, ...prev];
+      });
+      setHasMore(data.length === PAGE_SIZE);
+    } else {
+      setHasMore(false);
+    }
+
+    setIsLoadingMore(false);
+    loadingMoreRef.current = false;
+  }, [roomId, hasMore, messages]);
 
   // Subscribe to new messages via Realtime
   useEffect(() => {
@@ -40,7 +85,12 @@ export function useWarRoomMessages(roomId: string) {
           filter: `room_id=eq.${roomId}`,
         },
         (payload: RealtimePostgresChangesPayload<{[key: string]: any}>) => {
-          setMessages((prev) => [...prev, payload.new as WarRoomMessage]);
+          setMessages((prev) => {
+            const newMsg = payload.new as WarRoomMessage;
+            // Avoid duplicates from initial load race
+            if (prev.some(m => m.id === newMsg.id)) return prev;
+            return [...prev, newMsg];
+          });
         }
       )
       .on(
@@ -69,7 +119,7 @@ export function useWarRoomMessages(roomId: string) {
     async (content: string, metadata?: Record<string, any>) => {
       const { error } = await supabase.from('war_room_messages').insert({
         room_id: roomId,
-        sender_name: senderName,
+        sender_name: 'Juan', // TODO: get from auth context
         sender_type: 'human',
         content,
         content_type: 'text',
@@ -80,7 +130,7 @@ export function useWarRoomMessages(roomId: string) {
         throw error;
       }
     },
-    [roomId, senderName]
+    [roomId]
   );
 
   // Send a voice message
@@ -102,7 +152,7 @@ export function useWarRoomMessages(roomId: string) {
 
       const { error } = await supabase.from('war_room_messages').insert({
         room_id: roomId,
-        sender_name: senderName,
+        sender_name: 'Juan',
         sender_type: 'human',
         content: '🎤 Voice message (transcribing...)',
         content_type: 'voice',
@@ -111,8 +161,8 @@ export function useWarRoomMessages(roomId: string) {
       });
       if (error) console.error('Failed to send voice:', error);
     },
-    [roomId, senderName]
+    [roomId]
   );
 
-  return { messages, isLoading, sendMessage, sendVoiceMessage };
+  return { messages, isLoading, isLoadingMore, hasMore, loadOlderMessages, sendMessage, sendVoiceMessage };
 }
