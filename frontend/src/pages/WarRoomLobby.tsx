@@ -94,7 +94,6 @@ export function WarRoomLobby() {
         name: roomName,
         description: `Discussion with ${selectedAgents.join(', ')}`,
         routing_mode: 'moderated',
-        context_mode: 'full',
       })
       .select()
       .single();
@@ -104,17 +103,28 @@ export function WarRoomLobby() {
       return;
     }
 
-    await supabase.from('war_room_participants').insert({
-      room_id: room.id,
-      participant_type: 'human',
-      participant_name: 'Juan',
-      participant_config: { role: 'CEO', avatar_url: '/avatars/juan.png' },
-    });
+    // Add both human founders
+    await supabase.from('war_room_participants').insert([
+      {
+        room_id: room.id,
+        participant_type: 'human',
+        participant_name: 'Juan',
+        participant_config: { role: 'CEO', avatar_url: '/avatars/juan.png' },
+      },
+      {
+        room_id: room.id,
+        participant_type: 'human',
+        participant_name: 'Nathanael',
+        participant_config: { role: 'CTO', avatar_url: '/avatars/nathanael.png' },
+      },
+    ]);
 
-    for (const agentName of selectedAgents) {
-      const agentConfig = AVAILABLE_AGENTS.find(a => a.name === agentName);
-      if (agentConfig) {
-        await supabase.from('war_room_participants').insert({
+    // Add selected agents
+    const agentInserts = selectedAgents
+      .map((agentName) => {
+        const agentConfig = AVAILABLE_AGENTS.find(a => a.name === agentName);
+        if (!agentConfig) return null;
+        return {
           room_id: room.id,
           participant_type: 'agent',
           participant_name: agentConfig.name,
@@ -123,15 +133,19 @@ export function WarRoomLobby() {
             voice_enabled: true,
             system_prompt: `You are ${agentConfig.name}. ${agentConfig.expertise.join(', ')}.`,
           },
-        });
-      }
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+
+    if (agentInserts.length > 0) {
+      await supabase.from('war_room_participants').insert(agentInserts);
     }
 
     await supabase.from('war_room_messages').insert({
       room_id: room.id,
       sender_name: 'System',
       sender_type: 'system',
-      content: `War Room "${roomName}" created. Participants: ${['Juan', ...selectedAgents].join(', ')}.`,
+      content: `War Room "${roomName}" created. Participants: ${['Juan', 'Nathanael', ...selectedAgents].join(', ')}.`,
       content_type: 'text',
       metadata: { event: 'room_created' },
     });

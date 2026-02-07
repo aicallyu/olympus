@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { supabase } from '@/lib/supabase'
 
 export type TaskStatus =
   | 'inbox' | 'assigned' | 'in_progress'
@@ -287,8 +288,19 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
       const mappedAgents = (data.agents || []).map(mapAgent)
       set({ agents: mappedAgents })
     } catch (error) {
-      console.error('Error fetching agents:', error)
-      get().showToast('Failed to fetch agents', 'error')
+      console.error('Backend API error, trying Supabase direct:', error)
+      try {
+        const { data, error: sbError } = await supabase
+          .from('agents')
+          .select('*')
+          .order('name')
+        if (sbError) throw sbError
+        const mappedAgents = (data || []).map(mapAgent)
+        set({ agents: mappedAgents })
+      } catch (fallbackError) {
+        console.error('Supabase fallback also failed:', fallbackError)
+        get().showToast('Failed to fetch agents', 'error')
+      }
     }
   },
 
@@ -301,8 +313,20 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
       const mappedTasks = (data.tasks || []).map((t: any) => mapTask(t, agents))
       set({ tasks: mappedTasks })
     } catch (error) {
-      console.error('Error fetching tasks:', error)
-      get().showToast('Failed to fetch tasks', 'error')
+      console.error('Backend API error, trying Supabase direct:', error)
+      try {
+        const { data, error: sbError } = await supabase
+          .from('tasks')
+          .select('*')
+          .order('created_at', { ascending: false })
+        if (sbError) throw sbError
+        const { agents } = get()
+        const mappedTasks = (data || []).map((t: unknown) => mapTask(t, agents))
+        set({ tasks: mappedTasks })
+      } catch (fallbackError) {
+        console.error('Supabase fallback also failed:', fallbackError)
+        get().showToast('Failed to fetch tasks', 'error')
+      }
     }
   },
 
@@ -313,7 +337,17 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
       const data = await response.json()
       set({ projects: data.projects || [] })
     } catch (error) {
-      console.error('Error fetching projects:', error)
+      console.error('Backend API error for projects, trying Supabase direct:', error)
+      try {
+        const { data, error: sbError } = await supabase
+          .from('projects')
+          .select('*')
+          .order('name')
+        if (sbError) throw sbError
+        set({ projects: data || [] })
+      } catch {
+        console.error('Projects fallback also failed')
+      }
     }
   },
 
