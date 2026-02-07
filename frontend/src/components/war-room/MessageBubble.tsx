@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react';
 import type { WarRoomMessage } from '@/lib/war-room/types';
 
 interface Props {
@@ -26,6 +27,8 @@ export function MessageBubble({ message, isOwnMessage }: Props) {
     minute: '2-digit',
   });
   const isVoiceTranscribed = message.metadata?.voice_transcribed;
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   return (
     <div className={`flex gap-2 md:gap-3 px-2 md:px-4 py-1.5 md:py-2 ${isOwnMessage ? 'flex-row-reverse' : ''}`}>
@@ -68,9 +71,28 @@ export function MessageBubble({ message, isOwnMessage }: Props) {
           <p className="text-[13px] md:text-sm leading-relaxed whitespace-pre-wrap font-mono">{message.content}</p>
 
           {message.audio_url && (
-            <audio controls className="mt-2 w-full max-w-xs" preload="none">
-              <source src={message.audio_url} />
-            </audio>
+            <button
+              onClick={() => {
+                if (!audioRef.current) {
+                  audioRef.current = new Audio(message.audio_url!);
+                  audioRef.current.onended = () => setIsPlaying(false);
+                  audioRef.current.onerror = () => setIsPlaying(false);
+                }
+                if (isPlaying) {
+                  audioRef.current.pause();
+                  audioRef.current.currentTime = 0;
+                  setIsPlaying(false);
+                } else {
+                  audioRef.current.play();
+                  setIsPlaying(true);
+                }
+              }}
+              className="mt-1.5 flex items-center gap-1.5 px-2 py-1 rounded-md bg-[rgba(184,150,90,0.12)] border border-primary/20 text-primary text-[11px] font-mono hover:bg-[rgba(184,150,90,0.2)] transition-colors"
+              title={isPlaying ? 'Stop audio' : 'Play audio'}
+            >
+              <span className="text-sm">{isPlaying ? '⏹' : '▶️'}</span>
+              <span className="uppercase tracking-[0.1em]">{isPlaying ? 'Stop' : 'Play voice'}</span>
+            </button>
           )}
         </div>
 

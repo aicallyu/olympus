@@ -63,7 +63,7 @@ serve(async (req: Request) => {
     // Step 4: Look up agent records from the agents table
     const { data: agentRecords } = await supabase
       .from("agents")
-      .select("name, role, session_key, api_endpoint, api_model, system_prompt, model_primary, model_escalation")
+      .select("name, role, session_key, api_endpoint, api_model, system_prompt, model_primary, model_escalation, voice_id")
       .in("name", respondingAgents);
 
     const agentMap = new Map<string, AgentRecord>();
@@ -111,10 +111,14 @@ serve(async (req: Request) => {
           .select()
           .single();
 
-        // Voice TTS if configured in participant_config
-        const pConfig = participant.participant_config || {};
-        if (pConfig.voice_enabled && pConfig.voice_id && insertedMsg) {
-          await generateVoice(response.text, pConfig.voice_id, insertedMsg.id);
+        // Voice TTS if agent has a voice_id configured
+        if (agentRecord?.voice_id && insertedMsg) {
+          try {
+            await generateVoice(response.text, agentRecord.voice_id, insertedMsg.id);
+          } catch (ttsErr) {
+            console.error(`TTS failed for ${agentName}:`, ttsErr);
+            // Non-fatal — message was still sent as text
+          }
         }
       } catch (err) {
         console.error(`Agent ${agentName} failed:`, err);
@@ -152,6 +156,7 @@ interface AgentRecord {
   system_prompt: string | null;
   model_primary: string | null;
   model_escalation: string | null;
+  voice_id: string | null;
 }
 
 interface AgentResponse {
