@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X, Zap, ShieldCheck, ShieldAlert } from 'lucide-react'
 import { useOlympusStore } from '@/hooks/useOlympusStore'
+import { supabase } from '@/lib/supabase'
 
 interface AgentProfileModalProps {
   agentId: string
@@ -15,9 +16,13 @@ export function AgentProfileModal({ agentId, onClose }: AgentProfileModalProps) 
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const response = await fetch(`/api/agents/${agentId}/profile`)
-        if (response.ok) {
-          const data = await response.json()
+        const { data, error } = await supabase
+          .from('agents')
+          .select('*')
+          .eq('id', agentId)
+          .single()
+        
+        if (!error && data) {
           setProfile(data)
         }
       } catch (error) {

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { supabase } from '@/lib/supabase'
 
 export type TaskStatus = 'inbox' | 'assigned' | 'in_progress' | 'review' | 'done' | 'blocked'
 export type TaskPriority = 'low' | 'normal' | 'high' | 'critical'
@@ -187,10 +188,14 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
 
   fetchAgents: async () => {
     try {
-      const response = await fetch('/api/agents')
-      if (!response.ok) throw new Error('Failed to fetch agents')
-      const data = await response.json()
-      const mappedAgents = (data.agents || []).map(mapAgent)
+      const { data, error } = await supabase
+        .from('agents')
+        .select('*')
+        .eq('is_active', true)
+      
+      if (error) throw error
+      
+      const mappedAgents = (data || []).map(mapAgent)
       set({ agents: mappedAgents })
     } catch (error) {
       console.error('Error fetching agents:', error)
@@ -200,11 +205,15 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
 
   fetchTasks: async () => {
     try {
-      const response = await fetch('/api/tasks')
-      if (!response.ok) throw new Error('Failed to fetch tasks')
-      const data = await response.json()
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      
       const { agents } = get()
-      const mappedTasks = (data.tasks || []).map((t: any) => mapTask(t, agents))
+      const mappedTasks = (data || []).map((t: any) => mapTask(t, agents))
       set({ tasks: mappedTasks })
     } catch (error) {
       console.error('Error fetching tasks:', error)
@@ -219,25 +228,22 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
         title: taskData.title,
         description: taskData.description,
         priority: taskData.priority,
-        assignee: taskData.assignee === 'Unassigned' ? null : taskData.assignee,
+        assignee_id: taskData.assignee === 'Unassigned' ? null : taskData.assignee,
         status: taskData.assignee && taskData.assignee !== 'Unassigned' ? 'assigned' : 'inbox',
         created_by: 'ARGOS',
+        created_at: new Date().toISOString(),
       }
 
-      const response = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert(payload)
+        .select()
+        .single()
 
-      if (!response.ok) {
-        const error = await response.text()
-        throw new Error(error)
-      }
+      if (error) throw error
 
-      const data = await response.json()
       const { agents } = get()
-      const newTask = mapTask(data.task, agents)
+      const newTask = mapTask(data, agents)
       
       set((state) => ({ tasks: [newTask, ...state.tasks] }))
       get().showToast('Task created successfully', 'success')
@@ -253,69 +259,57 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
 
   updateTaskStatus: async (taskId, status) => {
     try {
-      const response = await fetch(`/api/tasks/${taskId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      })
+      const { error } = await supabase
+        .from('tasks')
+        .update({ status })
+        .eq('id', taskId)
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
-        throw new Error(errorData.error || 'Failed to update status')
-      }
+      if (error) throw error
 
-      const data = await response.json()
-      const { agents } = get()
-      const updatedTask = mapTask(data.task, agents)
-      
       set((state) => ({
-        tasks: state.tasks.map((t) => (t.id === taskId ? updatedTask : t)),
+        tasks: state.tasks.map((t) =>
+          t.id === taskId ? { ...t, status } : t
+        ),
       }))
-      
-      get().showToast(`Status updated to ${status.replace('_', ' ')}`, 'success')
+      get().showToast('Task status updated', 'success')
       return true
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error updating task status:', error)
-      get().showToast(error.message || 'Failed to update status', 'error')
+      get().showToast('Failed to update task', 'error')
       return false
     }
   },
 
   assignTask: async (taskId, agentId) => {
     try {
-      const response = await fetch(`/api/tasks/${taskId}/assign`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent_id: agentId }),
-      })
+      const { error } = await supabase
+        .from('tasks')
+        .update({ assignee_id: agentId, status: 'assigned' })
+        .eq('id', taskId)
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
-        throw new Error(errorData.error || 'Failed to assign task')
-      }
+      if (error) throw error
 
-      const data = await response.json()
       const { agents } = get()
-      const updatedTask = mapTask(data.task, agents)
-      
+      const assignee = agents.find((a) => a.id === agentId)?.name || null
+
       set((state) => ({
-        tasks: state.tasks.map((t) => (t.id === taskId ? updatedTask : t)),
+        tasks: state.tasks.map((t) =>
+          t.id === taskId ? { ...t, assignee_id: agentId, assignee, status: 'assigned' } : t
+        ),
       }))
-      
-      const agentName = agents.find(a => a.id === agentId)?.name || 'Agent'
-      get().showToast(`Task assigned to ${agentName}`, 'success')
+      get().showToast('Task assigned successfully', 'success')
       return true
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error assigning task:', error)
-      get().showToast(error.message || 'Failed to assign task', 'error')
+      get().showToast('Failed to assign task', 'error')
       return false
     }
   },
 
   moveTask: (taskId, status) => {
     set((state) => ({
-      tasks: state.tasks.map((task) =>
-        task.id === taskId ? { ...task, status } : task
+      tasks: state.tasks.map((t) =>
+        t.id === taskId ? { ...t, status } : t
       ),
     }))
   },

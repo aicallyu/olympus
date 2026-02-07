@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, ChevronDown, Loader2 } from 'lucide-react'
 import { OlympusTask, TaskStatus, useOlympusStore } from '@/hooks/useOlympusStore'
+import { supabase } from '@/lib/supabase'
 
 interface TaskDetailModalProps {
   task: OlympusTask
@@ -44,12 +45,14 @@ export function TaskDetailModal({ task, onClose }: TaskDetailModalProps) {
 
   const fetchStatusHistory = async () => {
     try {
-      const response = await fetch(`/api/tasks/${task.id}`)
-      if (response.ok) {
-        const data = await response.json()
-        if (data.task?.status_history) {
-          setStatusHistory(data.task.status_history)
-        }
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('status_history')
+        .eq('id', task.id)
+        .single()
+      
+      if (!error && data?.status_history) {
+        setStatusHistory(data.status_history)
       }
     } catch (error) {
       console.error('Error fetching status history:', error)
