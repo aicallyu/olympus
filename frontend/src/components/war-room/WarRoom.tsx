@@ -22,6 +22,7 @@ const AVAILABLE_AGENTS = [
   { name: 'ATHENA', expertise: ['QA', 'Code Review'], avatar: '🦉' },
   { name: 'HERCULOS', expertise: ['Backend', 'API'], avatar: '⚙️' },
   { name: 'PROMETHEUS', expertise: ['Testing', 'Perception'], avatar: '🔥' },
+  { name: 'APOLLO', expertise: ['Design', 'Visual Arts'], avatar: '🎨' },
   { name: 'HERMES', expertise: ['Comms', 'Notifications'], avatar: '📜' },
 ];
 
@@ -58,7 +59,7 @@ export function WarRoom({ roomId }: Props) {
   const handleSend = async () => {
     if (!inputText.trim()) return;
 
-    const isQuestioning = inputText.match(/@(ARGOS|ATLAS|ATHENA|HERCULOS|PROMETHEUS|HERMES).*\?/i) ||
+    const isQuestioning = inputText.match(/@(ARGOS|ATLAS|ATHENA|HERCULOS|PROMETHEUS|APOLLO|HERMES).*\?/i) ||
                          inputText.match(/(stimmt das|is that correct|really|sure)\??/i);
 
     if (isQuestioning) {

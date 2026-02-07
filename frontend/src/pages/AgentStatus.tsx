@@ -1,8 +1,14 @@
+import { useEffect } from 'react'
 import { AgentDetailCard } from '@/components/agents/AgentDetailCard'
 import { useOlympusStore } from '@/hooks/useOlympusStore'
 
 export function AgentStatus() {
   const agents = useOlympusStore((state) => state.agents)
+  const fetchAgents = useOlympusStore((state) => state.fetchAgents)
+
+  useEffect(() => {
+    fetchAgents()
+  }, [fetchAgents])
 
   return (
     <div className="space-y-8">
