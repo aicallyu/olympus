@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useWarRoomMessages } from '@/hooks/useWarRoomMessages';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
+import { useOlympusStore } from '@/hooks/useOlympusStore';
 import { MessageBubble } from './MessageBubble';
 import { supabase, supabaseUrl, supabaseAnonKey } from '@/lib/supabase';
 import { Users, Plus, X, Mic, Square, Send, Loader2 } from 'lucide-react';
@@ -45,6 +46,7 @@ export function WarRoom({ roomId }: Props) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [dbAgents, setDbAgents] = useState<DbAgent[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const showToast = useOlympusStore((state) => state.showToast);
 
   useEffect(() => {
     loadRoomInfo();
@@ -102,33 +104,44 @@ export function WarRoom({ roomId }: Props) {
 
   const handleVoiceToggle = async () => {
     if (isRecording) {
-      const blob = await stopRecording();
-      setIsTranscribing(true);
       try {
+        const blob = await stopRecording();
+        setIsTranscribing(true);
         const text = await transcribeAudio(blob);
         if (text && text.trim()) {
           await sendMessage(text, { voice_transcribed: true });
+        } else {
+          showToast('No speech detected in the recording', 'error');
         }
       } catch (err) {
         console.error('Transcription failed:', err);
+        showToast(`Voice transcription failed: ${(err as Error).message}`, 'error');
       } finally {
         setIsTranscribing(false);
       }
     } else {
-      await startRecording();
+      try {
+        await startRecording();
+      } catch (err) {
+        showToast((err as Error).message || 'Could not start recording', 'error');
+      }
     }
   };
 
   const handleCancelRecording = async () => {
     if (isRecording) {
-      await stopRecording();
-      // discard the blob — don't transcribe
+      try {
+        await stopRecording();
+      } catch {
+        // discard errors on cancel
+      }
     }
   };
 
   async function transcribeAudio(blob: Blob): Promise<string> {
+    const ext = (blob as any)._ext || 'webm';
     const formData = new FormData();
-    formData.append('audio', blob, 'recording.webm');
+    formData.append('audio', blob, `recording.${ext}`);
 
     const res = await fetch(`${supabaseUrl}/functions/v1/transcribe-audio`, {
       method: 'POST',
@@ -139,8 +152,14 @@ export function WarRoom({ roomId }: Props) {
     });
 
     if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Transcription failed: ${errText}`);
+      let errDetail = '';
+      try {
+        const errJson = await res.json();
+        errDetail = errJson.error || errJson.details || res.statusText;
+      } catch {
+        errDetail = await res.text().catch(() => res.statusText);
+      }
+      throw new Error(errDetail || `HTTP ${res.status}`);
     }
 
     const data = await res.json();
