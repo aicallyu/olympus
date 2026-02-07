@@ -3,39 +3,21 @@ import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { MessageCircle, Plus, Users } from 'lucide-react';
 
-interface Agent {
-  name: string;
-  expertise: string[];
-  avatar: string;
-  selected: boolean;
-}
+const AGENT_AVATARS: Record<string, string> = {
+  ARGOS: '🔱',
+  ATLAS: '🏛️',
+  ATHENA: '🦉',
+  HERCULOS: '⚙️',
+  PROMETHEUS: '🔥',
+  APOLLO: '🎨',
+  HERMES: '📜',
+};
 
-const AVAILABLE_AGENTS: Agent[] = [
-  { 
-    name: 'ARGOS', 
-    expertise: ['Infrastructure', 'DevOps', 'Local Tools'], 
-    avatar: '🤖',
-    selected: false 
-  },
-  { 
-    name: 'Claude', 
-    expertise: ['Architecture', 'Strategy', 'Code Review'], 
-    avatar: '🧠',
-    selected: false 
-  },
-  { 
-    name: 'Opus', 
-    expertise: ['Coding', 'Refactoring', 'Debugging'], 
-    avatar: '💻',
-    selected: false 
-  },
-  { 
-    name: 'Athena', 
-    expertise: ['Frontend', 'UI/UX', 'Design'], 
-    avatar: '🎨',
-    selected: false 
-  },
-];
+interface DbAgent {
+  id: string;
+  name: string;
+  role: string;
+}
 
 interface Room {
   id: string;
@@ -53,11 +35,20 @@ export function WarRoomLobby() {
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [roomName, setRoomName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [dbAgents, setDbAgents] = useState<DbAgent[]>([]);
 
-  // Load existing rooms
   useEffect(() => {
     loadRooms();
+    loadAgents();
   }, []);
+
+  async function loadAgents() {
+    const { data } = await supabase
+      .from('agents')
+      .select('id, name, role')
+      .order('name');
+    if (data) setDbAgents(data);
+  }
 
   async function loadRooms() {
     const { data: roomsData } = await supabase
@@ -68,7 +59,7 @@ export function WarRoomLobby() {
 
     if (roomsData) {
       const roomsWithDetails = await Promise.all(
-        roomsData.map(async (room: {id: string, name: string, description: string | null, created_at: string}) => {
+        roomsData.map(async (room: { id: string; name: string; description: string | null; created_at: string }) => {
           const { data: participants } = await supabase
             .from('war_room_participants')
             .select('participant_name')
@@ -91,7 +82,7 @@ export function WarRoomLobby() {
             id: room.id,
             name: room.name,
             description: room.description || '',
-            participant_names: participants?.map((p: {participant_name: string}) => p.participant_name) || [],
+            participant_names: participants?.map((p: { participant_name: string }) => p.participant_name) || [],
             message_count: messageCount || 0,
             last_message_at: lastMessage?.created_at || room.created_at,
           };
@@ -106,14 +97,12 @@ export function WarRoomLobby() {
 
     setIsCreating(true);
 
-    // Create room
     const { data: room } = await supabase
       .from('war_rooms')
       .insert({
         name: roomName,
         description: `Discussion with ${selectedAgents.join(', ')}`,
         routing_mode: 'moderated',
-        context_mode: 'full',
       })
       .select()
       .single();
@@ -123,39 +112,35 @@ export function WarRoomLobby() {
       return;
     }
 
-    // Add Juan (you)
-    await supabase.from('war_room_participants').insert({
-      room_id: room.id,
-      participant_type: 'human',
-      participant_name: 'Juan',
-      participant_config: { role: 'CEO', avatar_url: '/avatars/juan.png' },
-    });
+    // Add both human founders + selected agents in a single batch
+    const participantInserts = [
+      {
+        room_id: room.id,
+        participant_type: 'human',
+        participant_name: 'Juan',
+        participant_config: { role: 'CEO' },
+      },
+      {
+        room_id: room.id,
+        participant_type: 'human',
+        participant_name: 'Nathanael',
+        participant_config: { role: 'CTO' },
+      },
+      ...selectedAgents.map((agentName) => ({
+        room_id: room.id,
+        participant_type: 'agent',
+        participant_name: agentName,
+        participant_config: { voice_enabled: true },
+      })),
+    ];
 
-    // Add selected agents
-    for (const agentName of selectedAgents) {
-      const agentConfig = AVAILABLE_AGENTS.find(a => a.name === agentName);
-      if (agentConfig) {
-        await supabase.from('war_room_participants').insert({
-          room_id: room.id,
-          participant_type: 'agent',
-          participant_name: agentConfig.name,
-          participant_config: {
-            expertise: agentConfig.expertise,
-            voice_enabled: true,
-            voice_id: agentConfig.name === 'ARGOS' ? 'XB0fDUnXU5powFXDhCwa' : 
-                       agentConfig.name === 'Claude' ? 'Xb7hH8MSUJpSbSDYk0k2' : null,
-            system_prompt: `You are ${agentConfig.name}. ${agentConfig.expertise.join(', ')}.`,
-          },
-        });
-      }
-    }
+    await supabase.from('war_room_participants').insert(participantInserts);
 
-    // Add system welcome message
     await supabase.from('war_room_messages').insert({
       room_id: room.id,
       sender_name: 'System',
       sender_type: 'system',
-      content: `War Room "${roomName}" created. Participants: ${['Juan', ...selectedAgents].join(', ')}.`,
+      content: `War Room "${roomName}" created. Participants: ${['Juan', 'Nathanael', ...selectedAgents].join(', ')}.`,
       content_type: 'text',
       metadata: { event: 'room_created' },
     });
@@ -164,131 +149,132 @@ export function WarRoomLobby() {
     setShowCreateModal(false);
     setRoomName('');
     setSelectedAgents([]);
-    
-    // Navigate to the new room
+
     navigate(`/war-room/${room.id}`);
   }
 
   function toggleAgent(agentName: string) {
-    setSelectedAgents(prev => 
-      prev.includes(agentName) 
+    setSelectedAgents(prev =>
+      prev.includes(agentName)
         ? prev.filter(a => a !== agentName)
         : [...prev, agentName]
     );
   }
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-8">
+    <div className="max-w-5xl mx-auto">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">War Rooms</h1>
-          <p className="text-white/50">Create conversations with AI agents</p>
+          <h1 className="font-display text-xl uppercase tracking-[0.15em] text-primary">War Room</h1>
+          <p className="text-xs text-text-muted font-mono uppercase tracking-[0.2em] mt-1">
+            Multi-agent conversations
+          </p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-primary/30 bg-[rgba(184,150,90,0.12)] text-primary text-xs font-mono uppercase tracking-[0.1em] hover:bg-[rgba(184,150,90,0.2)] transition-colors"
         >
-          <Plus size={20} />
-          New Conversation
+          <Plus size={16} />
+          New Room
         </button>
       </div>
 
       {/* Room List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {rooms.map(room => (
-          <div
+          <button
             key={room.id}
             onClick={() => navigate(`/war-room/${room.id}`)}
-            className="bg-white/5 border border-white/10 rounded-xl p-4 cursor-pointer hover:bg-white/10 transition-colors"
+            className="text-left rounded-xl border border-border bg-[rgba(22,22,32,0.88)] p-4 hover:border-primary/40 transition-colors animate-card-reveal"
           >
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center">
-                  <MessageCircle className="text-blue-500" size={20} />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-white">{room.name}</h3>
-                  <p className="text-xs text-white/40">{room.description}</p>
-                </div>
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-[rgba(184,150,90,0.15)] border border-primary/20 flex items-center justify-center">
+                <MessageCircle className="text-primary" size={18} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-mono uppercase tracking-[0.1em] text-text-primary truncate">{room.name}</h3>
+                <p className="text-[10px] font-mono text-text-muted truncate">{room.description}</p>
               </div>
             </div>
-            
-            <div className="flex items-center gap-4 text-sm text-white/50">
+
+            <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-[0.15em] text-text-muted">
               <div className="flex items-center gap-1">
-                <Users size={14} />
+                <Users size={12} />
                 <span>{room.participant_names.length}</span>
               </div>
-              <div>{room.message_count} messages</div>
+              <div>{room.message_count} msgs</div>
               <div className="ml-auto">
                 {new Date(room.last_message_at).toLocaleDateString()}
               </div>
             </div>
 
-            <div className="flex gap-1 mt-3">
-              {room.participant_names.slice(0, 4).map((name, i) => (
+            <div className="flex gap-1.5 mt-3">
+              {room.participant_names.slice(0, 5).map((name, i) => (
                 <div
                   key={i}
-                  className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs"
+                  className="w-6 h-6 rounded-full bg-[rgba(184,150,90,0.12)] border border-border flex items-center justify-center text-[10px] font-mono text-text-secondary"
                 >
                   {name[0]}
                 </div>
               ))}
-              {room.participant_names.length > 4 && (
-                <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs">
-                  +{room.participant_names.length - 4}
+              {room.participant_names.length > 5 && (
+                <div className="w-6 h-6 rounded-full bg-[rgba(184,150,90,0.12)] border border-border flex items-center justify-center text-[10px] font-mono text-text-muted">
+                  +{room.participant_names.length - 5}
                 </div>
               )}
             </div>
-          </div>
+          </button>
         ))}
       </div>
 
       {rooms.length === 0 && (
-        <div className="text-center py-12 text-white/30">
-          <MessageCircle size={48} className="mx-auto mb-4 opacity-50" />
-          <p>No conversations yet.</p>
-          <p className="text-sm">Create your first War Room to get started.</p>
+        <div className="glass-panel p-12 flex flex-col items-center justify-center">
+          <MessageCircle size={32} className="text-text-muted mb-3" />
+          <p className="text-sm text-text-muted font-mono">No conversations yet</p>
+          <p className="text-xs text-text-muted mt-1">Create your first War Room to get started</p>
         </div>
       )}
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-white/10 rounded-xl p-6 w-full max-w-lg">
-            <h2 className="text-xl font-bold text-white mb-4">Create New Conversation</h2>
-            
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="glass-panel glow-border rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <h2 className="font-mono text-sm uppercase tracking-[0.15em] text-primary mb-5">New War Room</h2>
+
             <div className="mb-4">
-              <label className="block text-sm text-white/70 mb-2">Room Name</label>
+              <label className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-muted block mb-1.5">
+                Room Name
+              </label>
               <input
                 type="text"
                 value={roomName}
                 onChange={(e) => setRoomName(e.target.value)}
                 placeholder="e.g., Architecture Review"
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white placeholder:text-white/30 focus:outline-none focus:border-blue-500"
+                className="w-full bg-[rgba(22,22,32,0.8)] border border-border rounded-lg px-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/60 font-mono"
               />
             </div>
 
             <div className="mb-6">
-              <label className="block text-sm text-white/70 mb-2">
+              <label className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-muted block mb-2">
                 Select Agents ({selectedAgents.length} selected)
               </label>
               <div className="grid grid-cols-2 gap-2">
-                {AVAILABLE_AGENTS.map(agent => (
+                {dbAgents.map(agent => (
                   <button
                     key={agent.name}
                     onClick={() => toggleAgent(agent.name)}
                     className={`p-3 rounded-lg border text-left transition-all ${
                       selectedAgents.includes(agent.name)
-                        ? 'bg-blue-600/20 border-blue-500 text-white'
-                        : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'
+                        ? 'bg-[rgba(184,150,90,0.12)] border-primary/40 text-text-primary'
+                        : 'bg-[rgba(22,22,32,0.6)] border-border text-text-secondary hover:border-border/80'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xl">{agent.avatar}</span>
-                      <span className="font-medium">{agent.name}</span>
+                      <span className="text-lg">{AGENT_AVATARS[agent.name] || '🤖'}</span>
+                      <span className="font-mono text-xs uppercase tracking-[0.1em]">{agent.name}</span>
                     </div>
-                    <p className="text-xs text-white/50">
-                      {agent.expertise.join(', ')}
+                    <p className="text-[10px] font-mono text-text-muted">
+                      {agent.role}
                     </p>
                   </button>
                 ))}
@@ -298,14 +284,14 @@ export function WarRoomLobby() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="flex-1 px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
+                className="flex-1 px-4 py-2.5 rounded-lg border border-border bg-[rgba(22,22,32,0.6)] text-text-secondary text-xs font-mono uppercase tracking-[0.1em] hover:text-text-primary transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={createRoom}
                 disabled={!roomName.trim() || selectedAgents.length === 0 || isCreating}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex-1 px-4 py-2.5 rounded-lg border border-primary/30 bg-[rgba(184,150,90,0.15)] text-primary text-xs font-mono uppercase tracking-[0.1em] hover:bg-[rgba(184,150,90,0.25)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isCreating ? 'Creating...' : 'Create Room'}
               </button>

@@ -191,7 +191,7 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
       const { data, error } = await supabase
         .from('agents')
         .select('*')
-        .eq('is_active', true)
+        .order('name')
       
       if (error) throw error
       

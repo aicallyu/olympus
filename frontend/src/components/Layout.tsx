@@ -1,12 +1,19 @@
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 import { Header } from './Header'
 import { ToastContainer } from './Toast'
+import { useOlympusStore } from '@/hooks/useOlympusStore'
 
 interface LayoutProps {
   children: ReactNode
 }
 
 export function Layout({ children }: LayoutProps) {
+  const fetchAgents = useOlympusStore((state) => state.fetchAgents)
+
+  useEffect(() => {
+    fetchAgents()
+  }, [fetchAgents])
+
   return (
     <div className="min-h-screen bg-background text-text-primary relative overflow-hidden">
       <div className="radial-glow" />
