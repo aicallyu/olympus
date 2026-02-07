@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useWarRoomMessages } from '@/hooks/useWarRoomMessages';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { MessageBubble } from './MessageBubble';
-import { supabase } from '@/lib/supabase';
-import { Users, Plus, X } from 'lucide-react';
+import { supabase, supabaseUrl, supabaseAnonKey } from '@/lib/supabase';
+import { Users, Plus, X, Mic, Square, Send, Loader2 } from 'lucide-react';
 
 interface Props {
   roomId: string;
@@ -34,19 +34,27 @@ const AGENT_AVATARS: Record<string, string> = {
 };
 
 export function WarRoom({ roomId }: Props) {
-  const { messages, isLoading, sendMessage, sendVoiceMessage } = useWarRoomMessages(roomId);
+  const { messages, isLoading, sendMessage } = useWarRoomMessages(roomId);
   const { isRecording, duration, startRecording, stopRecording } = useVoiceRecorder();
   const [inputText, setInputText] = useState('');
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [roomName, setRoomName] = useState('');
   const [showAddAgent, setShowAddAgent] = useState(false);
+  const [showParticipants, setShowParticipants] = useState(false);
   const [isIntervening, setIsIntervening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [dbAgents, setDbAgents] = useState<DbAgent[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadRoomInfo();
     loadAgents();
   }, [roomId]);
+
+  // Auto-scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   async function loadAgents() {
     const { data } = await supabase
@@ -95,11 +103,49 @@ export function WarRoom({ roomId }: Props) {
   const handleVoiceToggle = async () => {
     if (isRecording) {
       const blob = await stopRecording();
-      await sendVoiceMessage(blob);
+      setIsTranscribing(true);
+      try {
+        const text = await transcribeAudio(blob);
+        if (text && text.trim()) {
+          await sendMessage(text, { voice_transcribed: true });
+        }
+      } catch (err) {
+        console.error('Transcription failed:', err);
+      } finally {
+        setIsTranscribing(false);
+      }
     } else {
       await startRecording();
     }
   };
+
+  const handleCancelRecording = async () => {
+    if (isRecording) {
+      await stopRecording();
+      // discard the blob — don't transcribe
+    }
+  };
+
+  async function transcribeAudio(blob: Blob): Promise<string> {
+    const formData = new FormData();
+    formData.append('audio', blob, 'recording.webm');
+
+    const res = await fetch(`${supabaseUrl}/functions/v1/transcribe-audio`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${supabaseAnonKey}`,
+      },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Transcription failed: ${errText}`);
+    }
+
+    const data = await res.json();
+    return data.text || '';
+  }
 
   async function addAgent(agentName: string) {
     const { data: newParticipant } = await supabase
@@ -142,30 +188,41 @@ export function WarRoom({ roomId }: Props) {
   );
 
   return (
-    <div className="flex h-[calc(100vh-200px)] rounded-xl border border-border overflow-hidden">
+    <div className="flex flex-col md:flex-row h-[calc(100dvh-160px)] md:h-[calc(100dvh-200px)] rounded-xl border border-border overflow-hidden">
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="px-5 py-3 border-b border-border bg-[rgba(10,10,14,0.6)] backdrop-blur flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-mono uppercase tracking-[0.15em] text-text-primary">{roomName || 'Loading...'}</h2>
+        <div className="px-3 py-2.5 md:px-5 md:py-3 border-b border-border bg-[rgba(10,10,14,0.6)] backdrop-blur flex items-center justify-between gap-2 shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-xs md:text-sm font-mono uppercase tracking-[0.15em] text-text-primary truncate">{roomName || 'Loading...'}</h2>
             <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-text-muted">
-              {activeAgents.length} agents · {participants.length} participants
+              {activeAgents.length} agents · {participants.length} total
             </p>
           </div>
 
-          <button
-            onClick={() => setShowAddAgent(true)}
-            disabled={availableToAdd.length === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-[rgba(22,22,32,0.6)] text-text-secondary text-xs font-mono uppercase tracking-[0.1em] hover:border-primary/40 hover:text-primary disabled:opacity-50 transition-colors"
-          >
-            <Plus size={14} />
-            Add Agent
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Mobile: Participants button */}
+            <button
+              onClick={() => setShowParticipants(true)}
+              className="lg:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-[rgba(22,22,32,0.6)] text-text-secondary text-xs font-mono hover:border-primary/40 hover:text-primary transition-colors"
+            >
+              <Users size={14} />
+              <span className="hidden sm:inline">{participants.length}</span>
+            </button>
+
+            <button
+              onClick={() => setShowAddAgent(true)}
+              disabled={availableToAdd.length === 0}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-[rgba(22,22,32,0.6)] text-text-secondary text-xs font-mono uppercase tracking-[0.1em] hover:border-primary/40 hover:text-primary disabled:opacity-50 transition-colors"
+            >
+              <Plus size={14} />
+              <span className="hidden sm:inline">Add Agent</span>
+            </button>
+          </div>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto py-4 bg-[rgba(8,8,12,0.4)]">
+        <div className="flex-1 overflow-y-auto py-3 md:py-4 bg-[rgba(8,8,12,0.4)]">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <span className="text-xs font-mono text-text-muted animate-pulse">Loading messages...</span>
@@ -175,101 +232,128 @@ export function WarRoom({ roomId }: Props) {
               <span className="text-xs font-mono text-text-muted">No messages yet. Start the conversation.</span>
             </div>
           ) : (
-            messages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                isOwnMessage={msg.sender_name === 'Juan'}
-              />
-            ))
+            <>
+              {messages.map((msg) => (
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  isOwnMessage={msg.sender_name === 'Juan'}
+                />
+              ))}
+              <div ref={messagesEndRef} />
+            </>
           )}
         </div>
 
         {/* Input */}
-        <div className="px-4 py-3 border-t border-border bg-[rgba(10,10,14,0.6)] backdrop-blur">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleVoiceToggle}
-              className={`p-2.5 rounded-lg transition-colors ${
-                isRecording
-                  ? 'bg-error/20 text-error border border-error/30 animate-pulse'
-                  : 'bg-[rgba(22,22,32,0.6)] text-text-muted border border-border hover:border-primary/40 hover:text-primary'
-              }`}
-            >
-              {isRecording ? `⏹ ${formatDuration(duration)}` : '🎤'}
-            </button>
+        <div
+          className="px-3 py-2.5 md:px-4 md:py-3 border-t border-border bg-[rgba(10,10,14,0.6)] backdrop-blur shrink-0"
+          style={{ paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom, 0px))' }}
+        >
+          {/* Transcribing indicator */}
+          {isTranscribing && (
+            <div className="flex items-center gap-2 mb-2 px-1">
+              <Loader2 size={12} className="animate-spin text-primary" />
+              <span className="text-[10px] font-mono text-primary uppercase tracking-[0.15em]">Transcribing voice...</span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5 md:gap-2">
+            {/* Voice record / cancel */}
+            {isRecording ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={handleCancelRecording}
+                  className="p-2 md:p-2.5 rounded-lg border border-border bg-[rgba(22,22,32,0.6)] text-text-muted hover:text-error transition-colors"
+                  title="Cancel recording"
+                >
+                  <X size={16} />
+                </button>
+                <button
+                  onClick={handleVoiceToggle}
+                  className="flex items-center gap-1.5 px-3 py-2 md:py-2.5 rounded-lg bg-error/20 text-error border border-error/30 animate-pulse transition-colors"
+                  title="Stop and transcribe"
+                >
+                  <Square size={14} fill="currentColor" />
+                  <span className="text-xs font-mono">{formatDuration(duration)}</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleVoiceToggle}
+                disabled={isTranscribing}
+                className="p-2 md:p-2.5 rounded-lg bg-[rgba(22,22,32,0.6)] text-text-muted border border-border hover:border-primary/40 hover:text-primary disabled:opacity-50 transition-colors"
+                title="Record voice message"
+              >
+                <Mic size={16} />
+              </button>
+            )}
 
             <input
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Type a message... Use @Agent to mention"
-              className="flex-1 bg-[rgba(22,22,32,0.6)] border border-border rounded-lg px-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/60 font-mono"
+              placeholder={isRecording ? 'Recording...' : 'Type a message...'}
+              disabled={isRecording || isTranscribing}
+              className="flex-1 min-w-0 bg-[rgba(22,22,32,0.6)] border border-border rounded-lg px-3 py-2 md:px-4 md:py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/60 font-mono disabled:opacity-50"
             />
 
             <button
               onClick={handleSend}
-              disabled={!inputText.trim() || isIntervening}
-              className="p-2.5 rounded-lg bg-[rgba(184,150,90,0.2)] border border-primary/30 text-primary hover:bg-[rgba(184,150,90,0.3)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              disabled={!inputText.trim() || isIntervening || isRecording || isTranscribing}
+              className="p-2 md:p-2.5 rounded-lg bg-[rgba(184,150,90,0.2)] border border-primary/30 text-primary hover:bg-[rgba(184,150,90,0.3)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="Send message"
             >
-              {isIntervening ? '...' : '➤'}
+              {isIntervening ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
             </button>
           </div>
 
-          <p className="text-[10px] font-mono text-text-muted mt-1.5">
+          <p className="text-[10px] font-mono text-text-muted mt-1 hidden md:block">
             Tip: @AGENT is that correct? — to get second opinions
           </p>
         </div>
       </div>
 
-      {/* Participants Sidebar */}
-      <div className="w-60 border-l border-border bg-[rgba(12,12,18,0.6)] p-4 hidden lg:block">
-        <div className="flex items-center gap-2 mb-4">
-          <Users size={14} className="text-text-muted" />
-          <h3 className="text-xs font-mono uppercase tracking-[0.2em] text-text-muted">Participants</h3>
-        </div>
-
-        <div className="space-y-2">
-          {participants.map((p) => (
-            <div
-              key={p.id}
-              className="flex items-center gap-3 px-3 py-2 rounded-lg bg-[rgba(22,22,32,0.6)] border border-border/50"
-            >
-              <div className="w-8 h-8 rounded-full bg-[rgba(184,150,90,0.15)] border border-primary/20 flex items-center justify-center text-sm">
-                {p.participant_type === 'human' ? '👤' : (AGENT_AVATARS[p.participant_name] || '🤖')}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-mono uppercase tracking-[0.1em] text-text-primary truncate">{p.participant_name}</p>
-                <p className="text-[10px] font-mono text-text-muted">
-                  {p.participant_type === 'human' ? 'Human' : 'Agent'}
-                </p>
-              </div>
-              {p.participant_type === 'agent' && (
-                <div className="w-2 h-2 rounded-full bg-success shadow-[0_0_6px_rgba(34,197,94,0.6)]" />
-              )}
-            </div>
-          ))}
-        </div>
-
-        {availableToAdd.length > 0 && (
-          <>
-            <div className="border-t border-border/30 my-4" />
-            <button
-              onClick={() => setShowAddAgent(true)}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-primary/20 bg-[rgba(184,150,90,0.08)] text-primary text-xs font-mono uppercase tracking-[0.1em] hover:bg-[rgba(184,150,90,0.15)] transition-colors"
-            >
-              <Plus size={14} />
-              Add Agent
-            </button>
-          </>
-        )}
+      {/* Participants Sidebar — desktop */}
+      <div className="w-60 border-l border-border bg-[rgba(12,12,18,0.6)] p-4 hidden lg:block shrink-0">
+        <ParticipantsList
+          participants={participants}
+          availableToAdd={availableToAdd}
+          onAddAgent={() => setShowAddAgent(true)}
+        />
       </div>
+
+      {/* Participants Drawer — mobile/tablet */}
+      {showParticipants && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowParticipants(false)} />
+          <div className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-[rgba(12,12,18,0.98)] border-l border-border p-4 overflow-y-auto animate-slide-in-right">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Users size={14} className="text-text-muted" />
+                <h3 className="text-xs font-mono uppercase tracking-[0.2em] text-text-muted">Participants</h3>
+              </div>
+              <button
+                onClick={() => setShowParticipants(false)}
+                className="text-text-muted hover:text-text-primary transition-colors p-1"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <ParticipantsList
+              participants={participants}
+              availableToAdd={availableToAdd}
+              onAddAgent={() => { setShowParticipants(false); setShowAddAgent(true); }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Add Agent Modal */}
       {showAddAgent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="glass-panel glow-border rounded-lg p-6 w-full max-w-md">
+          <div className="glass-panel glow-border rounded-lg p-4 md:p-6 w-full max-w-md max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-mono text-sm uppercase tracking-[0.15em] text-text-primary">Add Agent</h3>
               <button
@@ -291,14 +375,14 @@ export function WarRoom({ roomId }: Props) {
                   onClick={() => addAgent(agent.name)}
                   className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-[rgba(22,22,32,0.6)] hover:border-primary/40 transition-colors text-left"
                 >
-                  <div className="w-10 h-10 rounded-full bg-[rgba(184,150,90,0.15)] border border-primary/20 flex items-center justify-center text-lg">
+                  <div className="w-10 h-10 rounded-full bg-[rgba(184,150,90,0.15)] border border-primary/20 flex items-center justify-center text-lg shrink-0">
                     {AGENT_AVATARS[agent.name] || '🤖'}
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm font-mono uppercase tracking-[0.1em] text-text-primary">{agent.name}</p>
                     <p className="text-[10px] font-mono text-text-muted">{agent.role}</p>
                   </div>
-                  <Plus size={16} className="text-primary" />
+                  <Plus size={16} className="text-primary shrink-0" />
                 </button>
               ))}
             </div>
@@ -306,5 +390,55 @@ export function WarRoom({ roomId }: Props) {
         </div>
       )}
     </div>
+  );
+}
+
+// Shared participants list used in sidebar and drawer
+function ParticipantsList({
+  participants,
+  availableToAdd,
+  onAddAgent,
+}: {
+  participants: Participant[];
+  availableToAdd: DbAgent[];
+  onAddAgent: () => void;
+}) {
+  return (
+    <>
+      <div className="space-y-2">
+        {participants.map((p) => (
+          <div
+            key={p.id}
+            className="flex items-center gap-3 px-3 py-2 rounded-lg bg-[rgba(22,22,32,0.6)] border border-border/50"
+          >
+            <div className="w-8 h-8 rounded-full bg-[rgba(184,150,90,0.15)] border border-primary/20 flex items-center justify-center text-sm shrink-0">
+              {p.participant_type === 'human' ? '👤' : (AGENT_AVATARS[p.participant_name] || '🤖')}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-mono uppercase tracking-[0.1em] text-text-primary truncate">{p.participant_name}</p>
+              <p className="text-[10px] font-mono text-text-muted">
+                {p.participant_type === 'human' ? 'Human' : 'Agent'}
+              </p>
+            </div>
+            {p.participant_type === 'agent' && (
+              <div className="w-2 h-2 rounded-full bg-success shadow-[0_0_6px_rgba(34,197,94,0.6)] shrink-0" />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {availableToAdd.length > 0 && (
+        <>
+          <div className="border-t border-border/30 my-4" />
+          <button
+            onClick={onAddAgent}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-primary/20 bg-[rgba(184,150,90,0.08)] text-primary text-xs font-mono uppercase tracking-[0.1em] hover:bg-[rgba(184,150,90,0.15)] transition-colors"
+          >
+            <Plus size={14} />
+            Add Agent
+          </button>
+        </>
+      )}
+    </>
   );
 }
