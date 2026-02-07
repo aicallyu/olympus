@@ -13,6 +13,16 @@ serve(async (req: Request) => {
   try {
     const { message_id, room_id, sender_name, content, content_type, audio_url } = await req.json();
 
+    // Step 0: Check if sender is an AI agent
+    const { data: senderAgent, error: senderError } = await supabase
+      .from("agents")
+      .select("name, type")
+      .eq("name", sender_name)
+      .maybeSingle();  // Use maybeSingle instead of single to avoid error
+    
+    const isAgentSender = senderAgent?.type === 'ai';
+    console.log(`Message from ${sender_name}, isAgent: ${isAgentSender}, senderError: ${senderError?.message || 'none'}`);
+
     // Step 1: If voice message, transcribe first
     let messageText = content;
     if (content_type === "voice" && audio_url) {
@@ -37,47 +47,96 @@ serve(async (req: Request) => {
       .single();
 
     const agentParticipants = participants?.filter(p => p.participant_type === "agent") || [];
+    console.log(`Total participants: ${participants?.length || 0}, Agent participants: ${agentParticipants.length}`);
 
     if (agentParticipants.length === 0) {
-      return new Response(JSON.stringify({ status: "no_agents" }), { status: 200 });
+      return new Response(JSON.stringify({ status: "no_agents", debug: { participantsCount: participants?.length || 0 } }), { status: 200 });
     }
 
     // Step 3: Determine which agent(s) should respond
     let respondingAgents: string[] = [];
 
-    if (room?.routing_mode === "all") {
-      respondingAgents = agentParticipants.map(a => a.participant_name);
-    } else if (room?.routing_mode === "mentioned") {
-      respondingAgents = agentParticipants
-        .filter(a => messageText.includes(`@${a.participant_name}`))
-        .map(a => a.participant_name);
-    } else {
-      // 'moderated' — ask the Moderator Agent (using Kimi for now)
-      respondingAgents = await askModerator(messageText, agentParticipants, room_id);
+    // AGENT SENDER LOGIC: Agent messages only respond if @mentioned
+    if (isAgentSender) {
+      const mentionedAgents = extractMentions(messageText);
+      console.log(`Agent sender mentioned: ${mentionedAgents}`);
+      
+      if (mentionedAgents.length > 0) {
+        // Only respond if mentioned agent is in the room AND not the sender
+        respondingAgents = mentionedAgents.filter(name => 
+          agentParticipants.some(p => p.participant_name === name) && name !== sender_name
+        );
+      }
+      
+      // If no valid mentions, no response (prevent loops)
+      if (respondingAgents.length === 0) {
+        console.log("Agent message without valid @mention - no response");
+        return new Response(JSON.stringify({ status: "no_response_needed" }), { status: 200 });
+      }
+    } 
+    // HUMAN SENDER LOGIC: Normal routing
+    else {
+      console.log(`Human sender - routing_mode: ${room?.routing_mode}, agents: ${agentParticipants.map(a => a.participant_name).join(',')}`);
+      if (room?.routing_mode === "all") {
+        respondingAgents = agentParticipants.map(a => a.participant_name);
+        console.log(`ALL mode - responding: ${respondingAgents}`);
+      } else if (room?.routing_mode === "mentioned") {
+        respondingAgents = agentParticipants
+          .filter(a => messageText.includes(`@${a.participant_name}`))
+          .map(a => a.participant_name);
+      } else {
+        // 'moderated' — ask the Moderator Agent (using Kimi for now)
+        respondingAgents = await askModerator(messageText, agentParticipants, room_id);
+      }
     }
 
     if (respondingAgents.length === 0) {
       return new Response(JSON.stringify({ status: "no_response_needed" }), { status: 200 });
     }
 
-    // Step 4: Look up agent records from the agents table
-    const { data: agentRecords } = await supabase
-      .from("agents")
-      .select("name, role, session_key, api_endpoint, api_model, system_prompt, model_primary, model_escalation, voice_id")
-      .in("name", respondingAgents);
-
-    const agentMap = new Map<string, AgentRecord>();
-    for (const rec of agentRecords || []) {
-      agentMap.set(rec.name, rec);
-    }
+    // Step 4: Agent lookup will be done per-agent in the response handler
 
     // Step 5: Build conversation context
     const context = await buildContext(room_id, 20);
 
     // Step 6: Get responses from each selected agent (in parallel)
     const responsePromises = respondingAgents.map(async (agentName) => {
+      console.log(`Processing agent: ${agentName}`);
       const participant = agentParticipants.find(a => a.participant_name === agentName);
-      const agentRecord = agentMap.get(agentName);
+      
+      // Direct DB lookup for this agent
+      const { data: agentData, error: agentLookupError } = await supabase
+        .from("agents")
+        .select("name, role, session_key, api_endpoint, api_model, system_prompt, model_primary, model_escalation, voice_id")
+        .eq("name", agentName)
+        .single();
+      
+      if (agentLookupError) {
+        console.error(`Agent lookup error for ${agentName}:`, agentLookupError);
+        await supabase.from("war_room_messages").insert({
+          room_id,
+          sender_name: "System",
+          sender_type: "system",
+          content: `⚠️ ${agentName} could not respond: DB lookup failed - ${agentLookupError.message}`,
+          metadata: { error: true },
+        });
+        return;
+      }
+      
+      const agentRecord = agentData as AgentRecord | null;
+      console.log(`Direct lookup for ${agentName}:`, agentRecord?.name, "found:", !!agentRecord);
+      
+      if (!agentRecord) {
+        console.error(`Agent ${agentName} not found in DB`);
+        await supabase.from("war_room_messages").insert({
+          room_id,
+          sender_name: "System",
+          sender_type: "system",
+          content: `⚠️ ${agentName} could not respond: Agent not found in agents table.`,
+          metadata: { error: true },
+        });
+        return;
+      }
 
       if (!participant) return;
 
@@ -101,6 +160,7 @@ serve(async (req: Request) => {
             sender_type: "agent",
             content: response.text,
             content_type: "text",
+            triggered_by: message_id, // Track which message triggered this response
             metadata: {
               model_used: modelUsed,
               tokens_used: response.tokensUsed,
@@ -563,3 +623,19 @@ async function generateVoice(text: string, voiceId: string, messageId: string): 
     .update({ audio_url: urlData.publicUrl })
     .eq("id", messageId);
 }
+
+// ============================================================
+// HELPER: Extract @mentions from message text
+// ============================================================
+function extractMentions(text: string): string[] {
+  const mentionRegex = /@([A-Za-z0-9_]+)/g;
+  const mentions: string[] = [];
+  let match;
+  while ((match = mentionRegex.exec(text)) !== null) {
+    mentions.push(match[1]);
+  }
+  return mentions;
+}
+
+// Deploy Sat Feb  7 10:24:53 PST 2026
+// Updated Sat Feb  7 13:21:04 PST 2026

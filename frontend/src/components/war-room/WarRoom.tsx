@@ -2,13 +2,17 @@ import { useState, useEffect, useRef } from 'react';
 import { useWarRoomMessages } from '@/hooks/useWarRoomMessages';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useOlympusStore } from '@/hooks/useOlympusStore';
+import { useUser } from '@/contexts/UserContext';
 import { MessageBubble } from './MessageBubble';
+import { UserPicker } from '@/components/UserPicker';
 import { supabase, supabaseUrl, supabaseAnonKey } from '@/lib/supabase';
 import { Users, Plus, X, Mic, Square, Send, Loader2 } from 'lucide-react';
 
 interface Props {
   roomId: string;
 }
+
+// Add inside component: const { user } = useUser();
 
 interface Participant {
   id: string;
@@ -37,6 +41,7 @@ const AGENT_AVATARS: Record<string, string> = {
 export function WarRoom({ roomId }: Props) {
   const { messages, isLoading, sendMessage } = useWarRoomMessages(roomId);
   const { isRecording, duration, startRecording, stopRecording } = useVoiceRecorder();
+  const { user } = useUser();
   const [inputText, setInputText] = useState('');
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [roomName, setRoomName] = useState('');
@@ -47,6 +52,7 @@ export function WarRoom({ roomId }: Props) {
   const [dbAgents, setDbAgents] = useState<DbAgent[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const showToast = useOlympusStore((state) => state.showToast);
+  const currentUserName = user?.name || 'Guest';
 
   useEffect(() => {
     loadRoomInfo();
@@ -237,6 +243,9 @@ export function WarRoom({ roomId }: Props) {
               <Plus size={14} />
               <span className="hidden sm:inline">Add Agent</span>
             </button>
+
+            {/* User Picker */}
+            <UserPicker />
           </div>
         </div>
 
@@ -256,7 +265,7 @@ export function WarRoom({ roomId }: Props) {
                 <MessageBubble
                   key={msg.id}
                   message={msg}
-                  isOwnMessage={msg.sender_name === 'Juan'}
+                  isOwnMessage={msg.sender_name === currentUserName}
                 />
               ))}
               <div ref={messagesEndRef} />

@@ -1,0 +1,2 @@
+-- Add voice_id column only
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS voice_id TEXT;

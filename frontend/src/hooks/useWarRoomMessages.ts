@@ -1,11 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useUser } from '@/contexts/UserContext';
 import type { WarRoomMessage } from '@/lib/war-room/types';
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 export function useWarRoomMessages(roomId: string) {
   const [messages, setMessages] = useState<WarRoomMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { user } = useUser();
+  const senderName = user?.name || 'Guest';
 
   // Load initial messages
   useEffect(() => {
@@ -66,7 +69,7 @@ export function useWarRoomMessages(roomId: string) {
     async (content: string, metadata?: Record<string, any>) => {
       const { error } = await supabase.from('war_room_messages').insert({
         room_id: roomId,
-        sender_name: 'Juan', // TODO: get from auth context
+        sender_name: senderName,
         sender_type: 'human',
         content,
         content_type: 'text',
@@ -77,7 +80,7 @@ export function useWarRoomMessages(roomId: string) {
         throw error;
       }
     },
-    [roomId]
+    [roomId, senderName]
   );
 
   // Send a voice message
@@ -99,7 +102,7 @@ export function useWarRoomMessages(roomId: string) {
 
       const { error } = await supabase.from('war_room_messages').insert({
         room_id: roomId,
-        sender_name: 'Juan',
+        sender_name: senderName,
         sender_type: 'human',
         content: '🎤 Voice message (transcribing...)',
         content_type: 'voice',
@@ -108,7 +111,7 @@ export function useWarRoomMessages(roomId: string) {
       });
       if (error) console.error('Failed to send voice:', error);
     },
-    [roomId]
+    [roomId, senderName]
   );
 
   return { messages, isLoading, sendMessage, sendVoiceMessage };

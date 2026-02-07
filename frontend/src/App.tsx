@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
 import { Layout } from './components/Layout'
+import { UserProvider } from './contexts/UserContext'
 import { Dashboard } from './pages/Dashboard'
 import { TaskBoard } from './pages/TaskBoard'
 import { AgentStatus } from './pages/AgentStatus'
@@ -9,6 +10,7 @@ import { WarRoom } from './components/war-room/WarRoom'
 
 function App() {
   return (
+    <UserProvider>
     <Layout>
       <Routes>
         <Route path="/" element={<Dashboard />} />
@@ -19,6 +21,7 @@ function App() {
         <Route path="/war-room/:roomId" element={<WarRoomWrapper />} />
       </Routes>
     </Layout>
+    </UserProvider>
   )
 }
 
