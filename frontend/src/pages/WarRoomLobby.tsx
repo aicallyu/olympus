@@ -16,6 +16,7 @@ const AVAILABLE_AGENTS: Agent[] = [
   { name: 'ATHENA', expertise: ['QA', 'Code Review', 'Testing'], avatar: '🦉', selected: false },
   { name: 'HERCULOS', expertise: ['Backend', 'API', 'Database'], avatar: '⚙️', selected: false },
   { name: 'PROMETHEUS', expertise: ['Perception', 'Browser Testing'], avatar: '🔥', selected: false },
+  { name: 'APOLLO', expertise: ['Design', 'Visual Arts', 'UI/UX'], avatar: '🎨', selected: false },
   { name: 'HERMES', expertise: ['Comms', 'Notifications'], avatar: '📜', selected: false },
 ];
 

@@ -12,6 +12,7 @@ export function TaskBoard() {
   const moveTask = useOlympusStore((state) => state.moveTask)
   const updateTaskStatus = useOlympusStore((state) => state.updateTaskStatus)
   const fetchTasks = useOlympusStore((state) => state.fetchTasks)
+  const fetchAgents = useOlympusStore((state) => state.fetchAgents)
   const isLoading = useOlympusStore((state) => state.isLoading)
   
   const [activeTask, setActiveTask] = useState<OlympusTask | null>(null)
@@ -20,22 +21,23 @@ export function TaskBoard() {
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
 
-  // Fetch tasks on mount
+  // Fetch agents then tasks on mount
   useEffect(() => {
     const loadData = async () => {
       setIsInitialLoading(true)
+      await fetchAgents()
       await fetchTasks()
       setIsInitialLoading(false)
     }
     loadData()
-    
+
     // Poll for updates every 10 seconds
     const interval = setInterval(() => {
       fetchTasks()
     }, 10000)
-    
+
     return () => clearInterval(interval)
-  }, [fetchTasks])
+  }, [fetchAgents, fetchTasks])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 

@@ -13,6 +13,7 @@ const AVATARS: Record<string, { emoji: string; bg: string }> = {
   HERCULOS: { emoji: '⚙️', bg: 'bg-[rgba(184,150,90,0.25)]' },
   ATHENA: { emoji: '🦉', bg: 'bg-[rgba(139,92,246,0.25)]' },
   PROMETHEUS: { emoji: '🔥', bg: 'bg-[rgba(245,158,11,0.25)]' },
+  APOLLO: { emoji: '🎨', bg: 'bg-[rgba(236,72,153,0.25)]' },
   HERMES: { emoji: '📜', bg: 'bg-[rgba(184,150,90,0.25)]' },
   Claude: { emoji: '🧠', bg: 'bg-[rgba(139,92,246,0.25)]' },
   Opus: { emoji: '💻', bg: 'bg-[rgba(139,92,246,0.25)]' },
