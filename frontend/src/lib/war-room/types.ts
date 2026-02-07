@@ -53,5 +53,6 @@ export interface MessageMetadata {
   routing_reason?: string;
   reply_to?: string;
   original_type?: string;
+  voice_transcribed?: boolean;
   error?: boolean;
 }
