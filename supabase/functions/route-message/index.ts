@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 const OLLAMA_URL = Deno.env.get("OLLAMA_BASE_URL") || "http://172.29.96.1:11434";
-const KIMI_KEY = Deno.env.get("KIMI_API_KEY")!;
+const KIMI_KEY = Deno.env.get("KIMI_API_KEY") || "";
 
 serve(async (req: Request) => {
   try {
@@ -60,20 +60,38 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({ status: "no_response_needed" }), { status: 200 });
     }
 
-    // Step 4: Build conversation context
+    // Step 4: Look up agent records from the agents table
+    const { data: agentRecords } = await supabase
+      .from("agents")
+      .select("name, role, session_key, api_endpoint, api_model, system_prompt, model_primary, model_escalation")
+      .in("name", respondingAgents);
+
+    const agentMap = new Map<string, AgentRecord>();
+    for (const rec of agentRecords || []) {
+      agentMap.set(rec.name, rec);
+    }
+
+    // Step 5: Build conversation context
     const context = await buildContext(room_id, 20);
 
-    // Step 5: Get responses from each selected agent (in parallel)
+    // Step 6: Get responses from each selected agent (in parallel)
     const responsePromises = respondingAgents.map(async (agentName) => {
-      const agent = agentParticipants.find(a => a.participant_name === agentName);
-      if (!agent) return;
+      const participant = agentParticipants.find(a => a.participant_name === agentName);
+      const agentRecord = agentMap.get(agentName);
 
-      const config = agent.participant_config as AgentConfig;
+      if (!participant) return;
+
+      // Skip human participants
+      if (participant.participant_type === "human") return;
+      if (agentRecord?.session_key?.startsWith("human:")) return;
+
       const startTime = Date.now();
 
       try {
-        const response = await callAgent(config, messageText, context, agentName);
+        const response = await callAgentFromRecord(agentRecord, participant, messageText, context, agentName);
         const responseTime = Date.now() - startTime;
+
+        const modelUsed = agentRecord?.api_model || agentRecord?.model_primary || "unknown";
 
         const { data: insertedMsg } = await supabase
           .from("war_room_messages")
@@ -84,7 +102,7 @@ serve(async (req: Request) => {
             content: response.text,
             content_type: "text",
             metadata: {
-              model_used: config.model,
+              model_used: modelUsed,
               tokens_used: response.tokensUsed,
               response_time_ms: responseTime,
               routing_reason: response.routingReason || "",
@@ -93,8 +111,10 @@ serve(async (req: Request) => {
           .select()
           .single();
 
-        if (config.voice_enabled && config.voice_id && insertedMsg) {
-          await generateVoice(response.text, config.voice_id, insertedMsg.id);
+        // Voice TTS if configured in participant_config
+        const pConfig = participant.participant_config || {};
+        if (pConfig.voice_enabled && pConfig.voice_id && insertedMsg) {
+          await generateVoice(response.text, pConfig.voice_id, insertedMsg.id);
         }
       } catch (err) {
         console.error(`Agent ${agentName} failed:`, err);
@@ -120,6 +140,27 @@ serve(async (req: Request) => {
 });
 
 // ============================================================
+// TYPES
+// ============================================================
+
+interface AgentRecord {
+  name: string;
+  role: string;
+  session_key: string;
+  api_endpoint: string | null;
+  api_model: string | null;
+  system_prompt: string | null;
+  model_primary: string | null;
+  model_escalation: string | null;
+}
+
+interface AgentResponse {
+  text: string;
+  tokensUsed: number;
+  routingReason?: string;
+}
+
+// ============================================================
 // MODERATOR — Decides which agent(s) should respond
 // Using Kimi K2.5 for routing (Phase 1)
 // ============================================================
@@ -132,12 +173,12 @@ interface ModeratorResult {
 async function askModerator(
   message: string,
   agents: any[],
-  roomId: string
+  _roomId: string
 ): Promise<string[]> {
   const agentList = agents
     .map(a => {
-      const config = a.participant_config;
-      return `- ${a.participant_name}: ${(config.expertise || []).join(", ")}`;
+      const config = a.participant_config || {};
+      return `- ${a.participant_name}: ${(config.expertise || []).join(", ") || a.participant_name}`;
     })
     .join("\n");
 
@@ -151,9 +192,15 @@ RULES:
 2. Human-to-human message → route to NOBODY
 3. Infrastructure/DevOps/tools/n8n → ARGOS
 4. Architecture/code review/strategy/analysis → Claude
-5. Broad discussion → ALL AI agents
-6. Casual/greeting → most relevant agent
-7. Unsure → ARGOS
+5. Frontend/UI/React/CSS → ATLAS
+6. Backend/API/database → HERCULOS
+7. Testing/QA/bugs → ATHENA
+8. Design/visuals/aesthetics → APOLLO
+9. Documentation/writing → HERMES
+10. DevOps/deploy/CI/CD → PROMETHEUS
+11. Broad discussion → ALL AI agents
+12. Casual/greeting → most relevant agent
+13. Unsure → Claude
 
 MESSAGE: "${message}"
 
@@ -161,7 +208,11 @@ Respond JSON only:
 {"respond": ["AgentName"], "reason": "brief reason"}`;
 
   try {
-    // Use Kimi K2.5 as Moderator (Phase 1)
+    if (!KIMI_KEY) {
+      // No Kimi key — use keyword fallback
+      return keywordFallbackRouter(message, agents);
+    }
+
     const res = await fetch("https://api.moonshot.cn/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -191,84 +242,117 @@ Respond JSON only:
   }
 }
 
-// Simple keyword-based routing when AI is unavailable
+// Simple keyword-based routing when AI moderator is unavailable
 function keywordFallbackRouter(message: string, agents: any[]): string[] {
   const lower = message.toLowerCase();
   const agentNames = agents.map(a => a.participant_name);
 
+  // Check for @mentions first
   const mentioned = agentNames.filter(name => lower.includes(`@${name.toLowerCase()}`));
   if (mentioned.length > 0) return mentioned;
 
-  const infraKeywords = ["server", "deploy", "ollama", "docker", "git", "terminal", "shell", "n8n", "workflow", "infra", "local"];
-  const archKeywords = ["architecture", "design", "pattern", "review", "strategy", "plan", "spec", "structure"];
+  // Keyword matching per agent specialty
+  const routes: [string[], string][] = [
+    [["frontend", "react", "css", "tailwind", "component", "ui", "layout", "responsive", "vite"], "ATLAS"],
+    [["backend", "api", "database", "supabase", "sql", "server", "endpoint", "query", "schema"], "HERCULOS"],
+    [["test", "qa", "bug", "quality", "regression", "coverage", "assert", "spec"], "ATHENA"],
+    [["deploy", "ci", "cd", "docker", "pipeline", "infra", "devops", "monitor", "build", "netlify"], "PROMETHEUS"],
+    [["design", "color", "font", "animation", "visual", "icon", "theme", "aesthetic", "figma"], "APOLLO"],
+    [["doc", "readme", "comment", "write", "document", "changelog", "adr"], "HERMES"],
+    [["architecture", "strategy", "review", "plan", "structure", "pattern", "decision"], "Claude"],
+    [["server", "ollama", "n8n", "workflow", "orchestrat", "coordinate", "route"], "ARGOS"],
+  ];
 
-  const isInfra = infraKeywords.some(k => lower.includes(k));
-  const isArch = archKeywords.some(k => lower.includes(k));
+  const matches: string[] = [];
+  for (const [keywords, agent] of routes) {
+    if (keywords.some(k => lower.includes(k)) && agentNames.includes(agent)) {
+      matches.push(agent);
+    }
+  }
 
-  if (isInfra && isArch) return agentNames;
-  if (isInfra) return agentNames.filter(n => n === "ARGOS");
-  if (isArch) return agentNames.filter(n => n === "Claude");
+  if (matches.length > 0) return [...new Set(matches)];
 
+  // Default: route to Claude if present, else first agent
+  if (agentNames.includes("Claude")) return ["Claude"];
   return [agentNames[0] || "ARGOS"];
 }
 
 // ============================================================
-// AI AGENT CALLERS
+// AI AGENT CALLER — reads config from agents table
 // ============================================================
 
-interface AgentConfig {
-  model: string;
-  endpoint: "kimi" | "anthropic" | "ollama";
-  system_prompt: string;
-  voice_enabled: boolean;
-  voice_id?: string;
-  expertise: string[];
-  avatar_url: string;
-}
-
-interface AgentResponse {
-  text: string;
-  tokensUsed: number;
-  routingReason?: string;
-}
-
-async function callAgent(
-  config: AgentConfig,
+async function callAgentFromRecord(
+  agentRecord: AgentRecord | undefined,
+  _participant: any,
   userMessage: string,
   context: string,
   agentName: string
 ): Promise<AgentResponse> {
-  const fullPrompt = `${config.system_prompt}\n\n${context}`;
+  // ARGOS: not yet connected (placeholder)
+  if (agentName === "ARGOS" && !agentRecord?.api_endpoint) {
+    return {
+      text: `🔱 ARGOS acknowledges your message. I'm not yet connected to the War Room's live response system — my OpenClaw/Kimi integration is being configured. For now, other agents can assist. I'll be fully operational soon.`,
+      tokensUsed: 0,
+    };
+  }
 
-  switch (config.endpoint) {
-    case "anthropic":
-      return callAnthropic(fullPrompt, userMessage);
-    case "kimi":
-      return callKimi(fullPrompt, userMessage, config.model);
-    case "ollama":
-      return callOllama(fullPrompt, userMessage, config.model);
-    default:
-      throw new Error(`Unknown endpoint: ${config.endpoint}`);
+  // No agent record found in DB — return helpful error
+  if (!agentRecord) {
+    throw new Error(`Agent "${agentName}" not found in agents table. Run OLY-018 migration.`);
+  }
+
+  // No endpoint configured
+  if (!agentRecord.api_endpoint) {
+    throw new Error(`No API endpoint configured for ${agentName}. Run OLY-018 migration.`);
+  }
+
+  const systemPrompt = agentRecord.system_prompt ||
+    `You are ${agentName}, a ${agentRecord.role} in the OLYMPUS multi-agent system. Keep responses concise and helpful.`;
+
+  const fullPrompt = `${systemPrompt}\n\n${context}`;
+
+  // Determine provider from the endpoint URL
+  const endpoint = agentRecord.api_endpoint;
+
+  if (endpoint.includes("anthropic.com")) {
+    return callAnthropic(fullPrompt, userMessage, agentRecord.api_model || "claude-sonnet-4-5-20250929");
+  } else if (endpoint.includes("moonshot.cn")) {
+    return callKimi(fullPrompt, userMessage, agentRecord.api_model || "moonshot-v1-auto");
+  } else if (endpoint.includes("localhost") || endpoint.includes("172.") || endpoint.includes("ollama")) {
+    return callOllama(fullPrompt, userMessage, agentRecord.api_model || "qwen2.5-coder:32b");
+  } else {
+    // Try as OpenAI-compatible endpoint
+    return callOpenAICompatible(endpoint, fullPrompt, userMessage, agentRecord.api_model || "gpt-4");
   }
 }
 
-async function callAnthropic(systemPrompt: string, message: string): Promise<AgentResponse> {
+// ============================================================
+// API CALLERS
+// ============================================================
+
+async function callAnthropic(systemPrompt: string, message: string, model: string): Promise<AgentResponse> {
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
+
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
+      "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5-20250929",
+      model,
       max_tokens: 1024,
       system: systemPrompt,
       messages: [{ role: "user", content: message }],
     }),
   });
 
-  if (!res.ok) throw new Error(`Anthropic API error: ${res.status}`);
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`Anthropic API error ${res.status}: ${errBody.substring(0, 200)}`);
+  }
 
   const data = await res.json();
   return {
@@ -278,6 +362,8 @@ async function callAnthropic(systemPrompt: string, message: string): Promise<Age
 }
 
 async function callKimi(systemPrompt: string, message: string, model: string): Promise<AgentResponse> {
+  if (!KIMI_KEY) throw new Error("KIMI_API_KEY not set");
+
   const res = await fetch("https://api.moonshot.cn/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -324,6 +410,31 @@ async function callOllama(systemPrompt: string, message: string, model: string):
   return {
     text: data.message.content,
     tokensUsed: (data.eval_count || 0) + (data.prompt_eval_count || 0),
+  };
+}
+
+async function callOpenAICompatible(endpoint: string, systemPrompt: string, message: string, model: string): Promise<AgentResponse> {
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: message },
+      ],
+      max_tokens: 1024,
+    }),
+  });
+
+  if (!res.ok) throw new Error(`API error at ${endpoint}: ${res.status}`);
+
+  const data = await res.json();
+  return {
+    text: data.choices?.[0]?.message?.content || "No response",
+    tokensUsed: data.usage?.total_tokens || 0,
   };
 }
 
