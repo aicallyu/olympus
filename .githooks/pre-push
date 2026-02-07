@@ -1,0 +1,18 @@
+#!/bin/bash
+set -e
+
+echo "Quality Gate: Pre-push checks..."
+
+# Read commands from env or use defaults
+BUILD_CMD="${QUALITY_GATE_BUILD_CMD:-npm run build}"
+TYPECHECK_CMD="${QUALITY_GATE_TYPECHECK_CMD:-npx tsc --noEmit}"
+
+cd frontend
+
+echo "-> TypeScript..."
+eval $TYPECHECK_CMD || { echo "TypeScript errors. Push blocked."; exit 1; }
+
+echo "-> Build..."
+eval $BUILD_CMD || { echo "Build failed. Push blocked."; exit 1; }
+
+echo "All checks passed."
