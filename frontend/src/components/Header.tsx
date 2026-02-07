@@ -1,10 +1,12 @@
 import { NavLink } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { Menu, X } from 'lucide-react'
+import { ProjectSwitcher } from './quality-gate/ProjectSwitcher'
 
 const navItems = [
   { path: '/', label: 'OVERVIEW' },
   { path: '/tasks', label: 'TASK BOARD' },
+  { path: '/pipeline', label: 'PIPELINE' },
   { path: '/agents', label: 'AGENTS' },
   { path: '/activity', label: 'ACTIVITY' },
 ]
@@ -33,13 +35,18 @@ export function Header() {
     <header className="border-b border-border bg-[rgba(10,10,14,0.8)] backdrop-blur">
       <div className="px-4 py-4 sm:px-8 sm:py-5">
         <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="text-primary text-2xl">🔱</span>
-            <div>
-              <p className="font-display uppercase tracking-[0.2em] text-primary text-sm">OLYMP</p>
-              <p className="text-xs text-text-muted font-mono uppercase tracking-[0.24em]">
-                Command of the Gods
-              </p>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-primary text-2xl">🔱</span>
+              <div>
+                <p className="font-display uppercase tracking-[0.2em] text-primary text-sm">OLYMP</p>
+                <p className="text-xs text-text-muted font-mono uppercase tracking-[0.24em]">
+                  Command of the Gods
+                </p>
+              </div>
+            </div>
+            <div className="hidden sm:block">
+              <ProjectSwitcher />
             </div>
           </div>
 

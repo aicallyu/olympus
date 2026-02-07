@@ -338,6 +338,121 @@ const assignTaskHandler = async (c: any) => {
   return c.json({ task: data });
 };
 
+// GET /api/tasks/:id/verifications - Verification audit trail
+taskRoutes.get('/:id/verifications', async (c) => {
+  const id = c.req.param('id');
+
+  const { data, error } = await supabase
+    .from('task_verifications')
+    .select('*')
+    .eq('task_id', id)
+    .order('created_at', { ascending: false });
+
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ verifications: data || [] });
+});
+
+// PATCH /api/tasks/:id/approve - Human checkpoint approval
+taskRoutes.patch('/:id/approve', async (c) => {
+  const id = c.req.param('id');
+  const { notes } = await c.req.json().catch(() => ({ notes: '' }));
+
+  const { data: task, error: fetchErr } = await supabase
+    .from('tasks')
+    .select('id, status, gate_status, project_id')
+    .eq('id', id)
+    .single();
+
+  if (fetchErr || !task) return c.json({ error: 'Task not found' }, 404);
+  if (task.status !== 'human_checkpoint') {
+    return c.json({ error: 'Task is not at human checkpoint' }, 400);
+  }
+
+  const gateStatus = { ...(task.gate_status as Record<string, Record<string, unknown>>) };
+  gateStatus['human_checkpoint'] = {
+    ...gateStatus['human_checkpoint'],
+    status: 'passed',
+    passed_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from('tasks')
+    .update({
+      status: 'done',
+      gate_status: gateStatus,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) return c.json({ error: error.message }, 500);
+
+  await supabase.from('task_verifications').insert([{
+    task_id: id,
+    project_id: task.project_id,
+    gate: 'human_checkpoint',
+    attempt_number: 1,
+    verified_by: 'Juan',
+    status: 'pass',
+    summary: notes || 'Approved at human checkpoint',
+    details: { approved_at: new Date().toISOString() },
+  }]).catch(() => {});
+
+  return c.json({ task: data });
+});
+
+// PATCH /api/tasks/:id/reject - Human checkpoint rejection
+taskRoutes.patch('/:id/reject', async (c) => {
+  const id = c.req.param('id');
+  const { notes } = await c.req.json().catch(() => ({ notes: '' }));
+
+  const { data: task, error: fetchErr } = await supabase
+    .from('tasks')
+    .select('id, status, gate_status, project_id')
+    .eq('id', id)
+    .single();
+
+  if (fetchErr || !task) return c.json({ error: 'Task not found' }, 404);
+  if (task.status !== 'human_checkpoint') {
+    return c.json({ error: 'Task is not at human checkpoint' }, 400);
+  }
+
+  const gateStatus = { ...(task.gate_status as Record<string, Record<string, unknown>>) };
+  gateStatus['human_checkpoint'] = {
+    ...gateStatus['human_checkpoint'],
+    status: 'failed',
+    last_error: notes || 'Rejected',
+  };
+
+  const { data, error } = await supabase
+    .from('tasks')
+    .update({
+      status: 'rejected',
+      gate_status: gateStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) return c.json({ error: error.message }, 500);
+
+  await supabase.from('task_verifications').insert([{
+    task_id: id,
+    project_id: task.project_id,
+    gate: 'human_checkpoint',
+    attempt_number: 1,
+    verified_by: 'Juan',
+    status: 'fail',
+    summary: notes || 'Rejected at human checkpoint',
+    details: { rejected_at: new Date().toISOString(), notes },
+  }]).catch(() => {});
+
+  return c.json({ task: data });
+});
+
 // PATCH /api/tasks/:id/assign - Assign task to agent
 // (POST also supported for backward compatibility)
 taskRoutes.patch('/:id/assign', assignTaskHandler);

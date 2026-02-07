@@ -10,6 +10,7 @@ import { activityRoutes } from './routes/activities.js';
 import { notificationRoutes } from './routes/notifications.js';
 import { documentRoutes } from './routes/documents.js';
 import { metricsRoutes } from './routes/metrics.js';
+import { projectRoutes } from './routes/projects.js';
 
 const app = new Hono();
 
@@ -30,6 +31,7 @@ app.route('/api/activity', activityRoutes); // Alias for /activity/stream
 app.route('/api/notifications', notificationRoutes);
 app.route('/api/documents', documentRoutes);
 app.route('/api/metrics', metricsRoutes);
+app.route('/api/projects', projectRoutes);
 
 // 404 handler
 app.notFound((c) => c.json({ error: 'Not Found' }, 404));
