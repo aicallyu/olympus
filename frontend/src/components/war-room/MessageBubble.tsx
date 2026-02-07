@@ -6,15 +6,21 @@ interface Props {
 }
 
 const AVATARS: Record<string, { emoji: string; bg: string }> = {
-  Juan: { emoji: '👤', bg: 'bg-blue-600' },
-  Nathanael: { emoji: '👤', bg: 'bg-green-600' },
-  ARGOS: { emoji: '🤖', bg: 'bg-amber-600' },
-  Claude: { emoji: '🧠', bg: 'bg-purple-600' },
-  System: { emoji: '⚙️', bg: 'bg-gray-600' },
+  Juan: { emoji: '👤', bg: 'bg-[rgba(59,130,246,0.25)]' },
+  Nathanael: { emoji: '👤', bg: 'bg-[rgba(34,197,94,0.25)]' },
+  ARGOS: { emoji: '🔱', bg: 'bg-[rgba(184,150,90,0.25)]' },
+  ATLAS: { emoji: '🏛️', bg: 'bg-[rgba(184,150,90,0.25)]' },
+  HERCULOS: { emoji: '⚙️', bg: 'bg-[rgba(184,150,90,0.25)]' },
+  ATHENA: { emoji: '🦉', bg: 'bg-[rgba(139,92,246,0.25)]' },
+  PROMETHEUS: { emoji: '🔥', bg: 'bg-[rgba(245,158,11,0.25)]' },
+  HERMES: { emoji: '📜', bg: 'bg-[rgba(184,150,90,0.25)]' },
+  Claude: { emoji: '🧠', bg: 'bg-[rgba(139,92,246,0.25)]' },
+  Opus: { emoji: '💻', bg: 'bg-[rgba(139,92,246,0.25)]' },
+  System: { emoji: '⚙️', bg: 'bg-[rgba(118,122,132,0.25)]' },
 };
 
 export function MessageBubble({ message, isOwnMessage }: Props) {
-  const avatar = AVATARS[message.sender_name] ?? { emoji: '❓', bg: 'bg-gray-600' };
+  const avatar = AVATARS[message.sender_name] ?? { emoji: '❓', bg: 'bg-[rgba(118,122,132,0.25)]' };
   const time = new Date(message.created_at).toLocaleTimeString('de-DE', {
     hour: '2-digit',
     minute: '2-digit',
@@ -23,31 +29,31 @@ export function MessageBubble({ message, isOwnMessage }: Props) {
   return (
     <div className={`flex gap-3 px-4 py-2 ${isOwnMessage ? 'flex-row-reverse' : ''}`}>
       <div
-        className={`w-10 h-10 rounded-full ${avatar.bg} flex items-center justify-center text-lg shrink-0`}
+        className={`w-10 h-10 rounded-full ${avatar.bg} border border-border flex items-center justify-center text-lg shrink-0`}
       >
         {avatar.emoji}
       </div>
 
       <div className={`max-w-[70%] flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}>
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-sm font-semibold text-white">{message.sender_name}</span>
+          <span className="text-sm font-mono uppercase tracking-[0.1em] text-text-primary">{message.sender_name}</span>
           {message.metadata?.model_used && (
-            <span className="text-xs px-1.5 py-0.5 rounded bg-white/10 text-white/50">
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[rgba(255,255,255,0.04)] text-text-muted font-mono">
               {message.metadata.model_used}
             </span>
           )}
-          <span className="text-xs text-white/30">{time}</span>
+          <span className="text-[10px] font-mono text-text-muted">{time}</span>
         </div>
 
         <div
-          className={`rounded-2xl px-4 py-2.5 ${
+          className={`rounded-xl px-4 py-2.5 ${
             message.sender_type === 'system'
-              ? 'bg-red-900/30 text-red-200 border border-red-800/30'
+              ? 'bg-[rgba(239,68,68,0.08)] text-error/80 border border-error/20'
               : isOwnMessage
-                ? 'bg-blue-600 text-white'
+                ? 'bg-[rgba(184,150,90,0.15)] text-text-primary border border-primary/20'
                 : message.sender_type === 'agent'
-                  ? 'bg-white/10 text-white border border-white/5'
-                  : 'bg-white/5 text-white'
+                  ? 'bg-[rgba(22,22,32,0.8)] text-text-primary border border-border'
+                  : 'bg-[rgba(22,22,32,0.6)] text-text-primary'
           }`}
         >
           <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
@@ -60,7 +66,7 @@ export function MessageBubble({ message, isOwnMessage }: Props) {
         </div>
 
         {message.metadata?.routing_reason && (
-          <span className="text-xs text-white/20 mt-1">{message.metadata.routing_reason}</span>
+          <span className="text-[10px] font-mono text-text-muted mt-1">{message.metadata.routing_reason}</span>
         )}
       </div>
     </div>
