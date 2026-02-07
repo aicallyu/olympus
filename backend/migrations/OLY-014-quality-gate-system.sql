@@ -20,7 +20,100 @@ ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 CREATE POLICY projects_read_all ON projects FOR SELECT USING (true);
 
 -- ============================================================
--- 2. Link tasks to projects
+-- 2. Seed project configs (MUST come before linking tasks)
+-- ============================================================
+INSERT INTO projects (id, name, config) VALUES
+('olymp', 'OLYMP', '{
+  "repo": "aicallyu/olympus",
+  "stack": {
+    "framework": "vite-react-ts",
+    "build_command": "npm run build",
+    "typecheck_command": "npx tsc --noEmit",
+    "lint_command": "npx eslint src/ --quiet",
+    "node_version": "22"
+  },
+  "deployment": {
+    "platform": "vercel",
+    "live_url": "https://olymp.onioko.com",
+    "env_vars_required": ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"],
+    "deploy_branch": "main"
+  },
+  "backend": {
+    "platform": "supabase",
+    "project_ref": "mfpyyriilflviojnqhuv",
+    "edge_functions": true
+  },
+  "agents": {
+    "primary_dev": "ATLAS",
+    "backend_dev": "HERCULOS",
+    "infra": "ARGOS",
+    "qa": "ATHENA",
+    "perception": "PROMETHEUS",
+    "comms": "HERMES"
+  },
+  "notifications": {
+    "escalation_channel": "whatsapp",
+    "escalation_contact": "Juan"
+  }
+}'::jsonb)
+ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config;
+
+INSERT INTO projects (id, name, config) VALUES
+('devstackx', 'DevStackX', '{
+  "repo": "aicallyu/devstackx",
+  "stack": {
+    "framework": "vite-react-ts",
+    "build_command": "npm run build",
+    "typecheck_command": "npx tsc --noEmit",
+    "lint_command": "npx eslint src/ --quiet",
+    "node_version": "22"
+  },
+  "deployment": {
+    "platform": "netlify",
+    "live_url": "https://devstackx.onioko.com",
+    "env_vars_required": ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"],
+    "deploy_branch": "main"
+  },
+  "agents": {
+    "primary_dev": "ATLAS",
+    "backend_dev": "HERCULOS",
+    "infra": "ARGOS",
+    "qa": "ATHENA",
+    "perception": "PROMETHEUS",
+    "comms": "HERMES"
+  }
+}'::jsonb)
+ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config;
+
+INSERT INTO projects (id, name, config) VALUES
+('onioko-app', 'Onioko / Silent Oculus', '{
+  "repo": "aicallyu/onioko",
+  "stack": {
+    "framework": "vite-react-ts",
+    "build_command": "npm run build",
+    "typecheck_command": "npx tsc --noEmit",
+    "lint_command": "npx eslint src/ --quiet",
+    "node_version": "22"
+  },
+  "deployment": {
+    "platform": "netlify",
+    "live_url": "https://app.onioko.com",
+    "env_vars_required": ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"],
+    "deploy_branch": "main"
+  },
+  "agents": {
+    "primary_dev": "ATLAS",
+    "backend_dev": "HERCULOS",
+    "infra": "ARGOS",
+    "qa": "ATHENA",
+    "perception": "PROMETHEUS",
+    "comms": "HERMES"
+  }
+}'::jsonb)
+ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config;
+
+-- ============================================================
+-- 3. Link tasks to projects (projects must exist before this)
 -- ============================================================
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id) DEFAULT 'olymp';
 
@@ -158,95 +251,4 @@ CREATE TRIGGER enforce_status_transition
   FOR EACH ROW
   EXECUTE FUNCTION enforce_task_status_transition();
 
--- ============================================================
--- 8. Seed project configs
--- ============================================================
-INSERT INTO projects (id, name, config) VALUES
-('olymp', 'OLYMP', '{
-  "repo": "aicallyu/olympus",
-  "stack": {
-    "framework": "vite-react-ts",
-    "build_command": "npm run build",
-    "typecheck_command": "npx tsc --noEmit",
-    "lint_command": "npx eslint src/ --quiet",
-    "node_version": "22"
-  },
-  "deployment": {
-    "platform": "vercel",
-    "live_url": "https://olymp.onioko.com",
-    "env_vars_required": ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"],
-    "deploy_branch": "main"
-  },
-  "backend": {
-    "platform": "supabase",
-    "project_ref": "mfpyyriilflviojnqhuv",
-    "edge_functions": true
-  },
-  "agents": {
-    "primary_dev": "ATLAS",
-    "backend_dev": "HERCULOS",
-    "infra": "ARGOS",
-    "qa": "ATHENA",
-    "perception": "PROMETHEUS",
-    "comms": "HERMES"
-  },
-  "notifications": {
-    "escalation_channel": "whatsapp",
-    "escalation_contact": "Juan"
-  }
-}'::jsonb)
-ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config;
-
-INSERT INTO projects (id, name, config) VALUES
-('devstackx', 'DevStackX', '{
-  "repo": "aicallyu/devstackx",
-  "stack": {
-    "framework": "vite-react-ts",
-    "build_command": "npm run build",
-    "typecheck_command": "npx tsc --noEmit",
-    "lint_command": "npx eslint src/ --quiet",
-    "node_version": "22"
-  },
-  "deployment": {
-    "platform": "netlify",
-    "live_url": "https://devstackx.onioko.com",
-    "env_vars_required": ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"],
-    "deploy_branch": "main"
-  },
-  "agents": {
-    "primary_dev": "ATLAS",
-    "backend_dev": "HERCULOS",
-    "infra": "ARGOS",
-    "qa": "ATHENA",
-    "perception": "PROMETHEUS",
-    "comms": "HERMES"
-  }
-}'::jsonb)
-ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config;
-
-INSERT INTO projects (id, name, config) VALUES
-('onioko-app', 'Onioko / Silent Oculus', '{
-  "repo": "aicallyu/onioko",
-  "stack": {
-    "framework": "vite-react-ts",
-    "build_command": "npm run build",
-    "typecheck_command": "npx tsc --noEmit",
-    "lint_command": "npx eslint src/ --quiet",
-    "node_version": "22"
-  },
-  "deployment": {
-    "platform": "netlify",
-    "live_url": "https://app.onioko.com",
-    "env_vars_required": ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY"],
-    "deploy_branch": "main"
-  },
-  "agents": {
-    "primary_dev": "ATLAS",
-    "backend_dev": "HERCULOS",
-    "infra": "ARGOS",
-    "qa": "ATHENA",
-    "perception": "PROMETHEUS",
-    "comms": "HERMES"
-  }
-}'::jsonb)
-ON CONFLICT (id) DO UPDATE SET config = EXCLUDED.config;
+-- (Project seeds already inserted in step 2 above)
