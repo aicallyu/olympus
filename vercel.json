@@ -6,6 +6,10 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "https://olympus-api.onioko.com/api/$1"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

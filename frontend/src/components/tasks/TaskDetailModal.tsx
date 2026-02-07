@@ -18,8 +18,15 @@ const statusLabels: Record<TaskStatus, string> = {
   inbox: 'Inbox',
   assigned: 'Assigned',
   in_progress: 'In Progress',
-  review: 'Review',
+  build_check: 'Build Check',
+  deploy_check: 'Deploy Check',
+  perception_check: 'Perception',
+  human_checkpoint: 'Human Review',
   done: 'Done',
+  auto_fix: 'Auto-Fix',
+  escalated: 'Escalated',
+  rejected: 'Rejected',
+  review: 'Review',
   blocked: 'Blocked',
 }
 
