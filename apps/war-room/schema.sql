@@ -115,16 +115,25 @@ ON CONFLICT DO NOTHING;
 
 -- Add default participants (will be linked to actual user IDs later)
 INSERT INTO war_room_participants (room_id, participant_type, participant_name, participant_config)
-SELECT 
+SELECT
   id,
   'human',
   'Juan',
-  '{"role": "CEO", "avatar_url": "/avatars/juan.png"}'::jsonb
+  '{"role": "System Architect", "avatar_url": "/avatars/juan.png"}'::jsonb
 FROM war_rooms WHERE name = 'OLYM HQ'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO war_room_participants (room_id, participant_type, participant_name, participant_config)
-SELECT 
+SELECT
+  id,
+  'human',
+  'Nathanael',
+  '{"role": "Frontend Developer", "avatar_url": "/avatars/nathanael.png"}'::jsonb
+FROM war_rooms WHERE name = 'OLYM HQ'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO war_room_participants (room_id, participant_type, participant_name, participant_config)
+SELECT
   id,
   'agent',
   'ARGOS',
@@ -133,7 +142,7 @@ FROM war_rooms WHERE name = 'OLYM HQ'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO war_room_participants (room_id, participant_type, participant_name, participant_config)
-SELECT 
+SELECT
   id,
   'agent',
   'Claude',

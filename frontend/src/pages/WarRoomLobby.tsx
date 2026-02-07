@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { MessageCircle, Plus, Users } from 'lucide-react';
 
-const AGENT_AVATARS: Record<string, string> = {
+const PARTICIPANT_AVATARS: Record<string, string> = {
   ARGOS: '🔱',
   ATLAS: '🏛️',
   ATHENA: '🦉',
@@ -11,12 +11,16 @@ const AGENT_AVATARS: Record<string, string> = {
   PROMETHEUS: '🔥',
   APOLLO: '🎨',
   HERMES: '📜',
+  Claude: '🧠',
+  Juan: '👤',
+  Nathanael: '👤',
 };
 
 interface DbAgent {
   id: string;
   name: string;
   role: string;
+  session_key: string;
 }
 
 interface Room {
@@ -45,7 +49,7 @@ export function WarRoomLobby() {
   async function loadAgents() {
     const { data } = await supabase
       .from('agents')
-      .select('id, name, role')
+      .select('id, name, role, session_key')
       .order('name');
     if (data) setDbAgents(data);
   }
@@ -97,7 +101,8 @@ export function WarRoomLobby() {
 
     setIsCreating(true);
 
-    const { data: room } = await supabase
+    // 1. Create the war room
+    const { data: room, error: roomError } = await supabase
       .from('war_rooms')
       .insert({
         name: roomName,
@@ -107,43 +112,49 @@ export function WarRoomLobby() {
       .select()
       .single();
 
-    if (!room) {
+    if (roomError || !room) {
+      console.error('Failed to create war room:', roomError);
       setIsCreating(false);
       return;
     }
 
-    // Add both human founders + selected agents in a single batch
-    const participantInserts = [
-      {
+    // 2. Build participant inserts from selected names
+    const participantInserts = selectedAgents.map((name) => {
+      const agent = dbAgents.find((a) => a.name === name);
+      const isHuman = agent?.session_key.startsWith('human:');
+      return {
         room_id: room.id,
-        participant_type: 'human',
-        participant_name: 'Juan',
-        participant_config: { role: 'CEO' },
-      },
-      {
-        room_id: room.id,
-        participant_type: 'human',
-        participant_name: 'Nathanael',
-        participant_config: { role: 'CTO' },
-      },
-      ...selectedAgents.map((agentName) => ({
-        room_id: room.id,
-        participant_type: 'agent',
-        participant_name: agentName,
-        participant_config: { voice_enabled: true },
-      })),
-    ];
-
-    await supabase.from('war_room_participants').insert(participantInserts);
-
-    await supabase.from('war_room_messages').insert({
-      room_id: room.id,
-      sender_name: 'System',
-      sender_type: 'system',
-      content: `War Room "${roomName}" created. Participants: ${['Juan', 'Nathanael', ...selectedAgents].join(', ')}.`,
-      content_type: 'text',
-      metadata: { event: 'room_created' },
+        participant_type: isHuman ? 'human' : 'agent',
+        participant_name: name,
+        participant_config: isHuman
+          ? { role: agent?.role }
+          : { voice_enabled: true },
+      };
     });
+
+    const { error: participantsError } = await supabase
+      .from('war_room_participants')
+      .insert(participantInserts);
+
+    if (participantsError) {
+      console.error('Failed to add participants:', participantsError);
+    }
+
+    // 3. Create system message
+    const { error: messageError } = await supabase
+      .from('war_room_messages')
+      .insert({
+        room_id: room.id,
+        sender_name: 'System',
+        sender_type: 'system',
+        content: `War Room "${roomName}" created. Participants: ${selectedAgents.join(', ')}.`,
+        content_type: 'text',
+        metadata: { event: 'room_created' },
+      });
+
+    if (messageError) {
+      console.error('Failed to create system message:', messageError);
+    }
 
     setIsCreating(false);
     setShowCreateModal(false);
@@ -254,12 +265,39 @@ export function WarRoomLobby() {
               />
             </div>
 
-            <div className="mb-6">
+            <div className="mb-4">
               <label className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-muted block mb-2">
-                Select Agents ({selectedAgents.length} selected)
+                Human Participants
               </label>
               <div className="grid grid-cols-2 gap-2">
-                {dbAgents.map(agent => (
+                {dbAgents.filter(a => a.session_key.startsWith('human:')).map(agent => (
+                  <button
+                    key={agent.name}
+                    onClick={() => toggleAgent(agent.name)}
+                    className={`p-3 rounded-lg border text-left transition-all ${
+                      selectedAgents.includes(agent.name)
+                        ? 'bg-[rgba(90,150,184,0.15)] border-blue-400/40 text-text-primary'
+                        : 'bg-[rgba(22,22,32,0.6)] border-border text-text-secondary hover:border-border/80'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-lg">{PARTICIPANT_AVATARS[agent.name] || '👤'}</span>
+                      <span className="font-mono text-xs uppercase tracking-[0.1em]">{agent.name}</span>
+                    </div>
+                    <p className="text-[10px] font-mono text-text-muted">
+                      {agent.role}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-muted block mb-2">
+                Agents ({selectedAgents.filter(n => !dbAgents.find(a => a.name === n)?.session_key.startsWith('human:')).length} selected)
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {dbAgents.filter(a => !a.session_key.startsWith('human:')).map(agent => (
                   <button
                     key={agent.name}
                     onClick={() => toggleAgent(agent.name)}
@@ -270,7 +308,7 @@ export function WarRoomLobby() {
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-lg">{AGENT_AVATARS[agent.name] || '🤖'}</span>
+                      <span className="text-lg">{PARTICIPANT_AVATARS[agent.name] || '🤖'}</span>
                       <span className="font-mono text-xs uppercase tracking-[0.1em]">{agent.name}</span>
                     </div>
                     <p className="text-[10px] font-mono text-text-muted">

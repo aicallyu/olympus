@@ -8,13 +8,16 @@
 -- 1. Seed the 7 Onioko agents (upsert by session_key)
 -- ============================================================
 INSERT INTO agents (name, role, session_key, model_primary, model_escalation) VALUES
-  ('ARGOS',      'Orchestrator',         'agent:main:main',     'kimi/kimi-k2.5',           'anthropic/claude-opus-4-5'),
-  ('ATLAS',      'Frontend Engineer',    'agent:frontend:main', 'kimi/kimi-k2.5',           'openai/gpt-5.2-codex'),
-  ('ATHENA',     'QA & Strategy',        'agent:qa:main',       'kimi/kimi-k2.5',           'kimi/kimi-k2.5'),
-  ('HERCULOS',   'Backend Engineer',     'agent:backend:main',  'kimi/kimi-k2.5',           'openai/gpt-5.2-codex'),
-  ('PROMETHEUS', 'DevOps & Automation',  'agent:devops:main',   'kimi/kimi-k2.5',           'deepseek/deepseek-v3'),
-  ('APOLLO',     'Design & Visual Arts', 'agent:design:main',   'anthropic/claude-opus-4-5', 'anthropic/claude-opus-4-5'),
-  ('HERMES',     'Documentation',        'agent:docs:main',     'kimi/kimi-k2.5',           'kimi/kimi-k2.5')
+  ('ARGOS',      'Orchestrator',              'agent:main:main',      'kimi/kimi-k2.5',            'anthropic/claude-opus-4-5'),
+  ('ATLAS',      'Frontend Engineer',         'agent:frontend:main',  'kimi/kimi-k2.5',            'openai/gpt-5.2-codex'),
+  ('ATHENA',     'QA & Strategy',             'agent:qa:main',        'kimi/kimi-k2.5',            'kimi/kimi-k2.5'),
+  ('HERCULOS',   'Backend Engineer',          'agent:backend:main',   'kimi/kimi-k2.5',            'openai/gpt-5.2-codex'),
+  ('PROMETHEUS', 'DevOps & Automation',       'agent:devops:main',    'kimi/kimi-k2.5',            'deepseek/deepseek-v3'),
+  ('APOLLO',     'Design & Visual Arts',      'agent:design:main',    'anthropic/claude-opus-4-5',  'anthropic/claude-opus-4-5'),
+  ('HERMES',     'Documentation',             'agent:docs:main',      'kimi/kimi-k2.5',            'kimi/kimi-k2.5'),
+  ('Claude',     'Architecture & Strategy',   'agent:claude:main',    'anthropic/claude-sonnet-4-5','anthropic/claude-opus-4-5'),
+  ('Juan',       'System Architect',          'human:juan',           'human',                      'human'),
+  ('Nathanael',  'Frontend Developer',        'human:nathanael',      'human',                      'human')
 ON CONFLICT (session_key) DO UPDATE SET
   name = EXCLUDED.name,
   role = EXCLUDED.role,

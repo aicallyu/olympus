@@ -30,6 +30,7 @@ const AGENT_AVATARS: Record<string, string> = {
   PROMETHEUS: '🔥',
   APOLLO: '🎨',
   HERMES: '📜',
+  Claude: '🧠',
 };
 
 export function WarRoom({ roomId }: Props) {
