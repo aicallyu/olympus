@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useWarRoomMessages } from '@/hooks/useWarRoomMessages';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useOlympusStore } from '@/hooks/useOlympusStore';
@@ -35,7 +35,7 @@ const AGENT_AVATARS: Record<string, string> = {
 };
 
 export function WarRoom({ roomId }: Props) {
-  const { messages, isLoading, sendMessage } = useWarRoomMessages(roomId);
+  const { messages, isLoading, isLoadingMore, hasMore, loadOlderMessages, sendMessage } = useWarRoomMessages(roomId);
   const { isRecording, duration, startRecording, stopRecording } = useVoiceRecorder();
   const [inputText, setInputText] = useState('');
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -46,6 +46,9 @@ export function WarRoom({ roomId }: Props) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [dbAgents, setDbAgents] = useState<DbAgent[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const prevScrollHeightRef = useRef(0);
   const showToast = useOlympusStore((state) => state.showToast);
 
   useEffect(() => {
@@ -53,10 +56,47 @@ export function WarRoom({ roomId }: Props) {
     loadAgents();
   }, [roomId]);
 
-  // Auto-scroll to bottom on new messages
+  // Scroll to bottom on initial load
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (!isLoading) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+      isNearBottomRef.current = true;
+    }
+  }, [isLoading]);
+
+  // Smart auto-scroll: only if user is near bottom
+  useEffect(() => {
+    if (isNearBottomRef.current && !isLoading) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isLoading]);
+
+  // Preserve scroll position after loading older messages
+  useEffect(() => {
+    if (!isLoadingMore && prevScrollHeightRef.current > 0) {
+      const el = scrollContainerRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight - prevScrollHeightRef.current;
+      }
+      prevScrollHeightRef.current = 0;
+    }
+  }, [isLoadingMore]);
+
+  // Handle scroll events: detect near-bottom + trigger infinite scroll at top
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    // Track if user is near the bottom (within 100px)
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isNearBottomRef.current = distanceFromBottom < 100;
+
+    // Infinite scroll: load older messages when scrolled near the top
+    if (el.scrollTop < 50 && hasMore && !isLoadingMore) {
+      prevScrollHeightRef.current = el.scrollHeight;
+      loadOlderMessages();
+    }
+  }, [hasMore, isLoadingMore, loadOlderMessages]);
 
   async function loadAgents() {
     const { data } = await supabase
@@ -209,7 +249,7 @@ export function WarRoom({ roomId }: Props) {
   return (
     <div className="flex flex-col md:flex-row h-[calc(100dvh-160px)] md:h-[calc(100dvh-200px)] rounded-xl border border-border overflow-hidden">
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Header */}
         <div className="px-3 py-2.5 md:px-5 md:py-3 border-b border-border bg-[rgba(10,10,14,0.6)] backdrop-blur flex items-center justify-between gap-2 shrink-0">
           <div className="min-w-0">
@@ -241,7 +281,11 @@ export function WarRoom({ roomId }: Props) {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto py-3 md:py-4 bg-[rgba(8,8,12,0.4)]">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto py-3 md:py-4 bg-[rgba(8,8,12,0.4)] min-h-0"
+        >
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <span className="text-xs font-mono text-text-muted animate-pulse">Loading messages...</span>
@@ -252,6 +296,18 @@ export function WarRoom({ roomId }: Props) {
             </div>
           ) : (
             <>
+              {/* Loading older messages indicator */}
+              {isLoadingMore && (
+                <div className="flex items-center justify-center py-3">
+                  <Loader2 size={14} className="animate-spin text-primary mr-2" />
+                  <span className="text-[10px] font-mono text-text-muted uppercase tracking-[0.15em]">Loading older messages...</span>
+                </div>
+              )}
+              {!hasMore && messages.length > 0 && (
+                <div className="flex items-center justify-center py-3">
+                  <span className="text-[10px] font-mono text-text-muted uppercase tracking-[0.15em]">Beginning of conversation</span>
+                </div>
+              )}
               {messages.map((msg) => (
                 <MessageBubble
                   key={msg.id}
