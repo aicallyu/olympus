@@ -93,6 +93,54 @@ export interface Toast {
   type: 'success' | 'error' | 'info'
 }
 
+export interface ProjectConfig {
+  repo: string
+  stack: {
+    framework: string
+    build_command: string
+    typecheck_command: string
+    lint_command: string
+    node_version: string
+  }
+  deployment: {
+    platform: string
+    live_url: string
+    env_vars_required: string[]
+    deploy_branch: string
+  }
+  agents: Record<string, string>
+  notifications?: {
+    escalation_channel?: string
+    escalation_contact?: string
+  }
+}
+
+export interface Project {
+  id: string
+  name: string
+  config: ProjectConfig
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface TaskVerification {
+  id: string
+  task_id: string
+  project_id: string
+  gate: string
+  attempt_number: number
+  verified_by: string
+  status: 'pass' | 'fail' | 'auto_fix_attempted' | 'escalated'
+  summary: string
+  details: Record<string, unknown>
+  criteria_results: unknown[]
+  auto_fix_action: string | null
+  auto_fix_result: string | null
+  escalation_context: string | null
+  created_at: string
+}
+
 interface OlympusStore {
   stats: OlympusStat[]
   agents: OlympusAgent[]
@@ -104,23 +152,32 @@ interface OlympusStore {
   selectedAgentId: string | null
   toasts: Toast[]
   isLoading: boolean
-  
+
+  // Project state
+  projects: Project[]
+  selectedProjectId: string
+
   // Actions
   openCreateTask: () => void
   closeCreateTask: () => void
   openAgentProfile: (agentId: string) => void
   closeAgentProfile: () => void
-  
+
   // API Actions
   fetchTasks: () => Promise<void>
   fetchAgents: () => Promise<void>
+  fetchProjects: () => Promise<void>
+  fetchVerifications: (taskId: string) => Promise<TaskVerification[]>
+  approveTask: (taskId: string, notes?: string) => Promise<boolean>
+  rejectTask: (taskId: string, notes?: string) => Promise<boolean>
   createTask: (task: { title: string; description?: string; priority: TaskPriority; assignee?: string; acceptance_criteria?: AcceptanceCriterion[] }) => Promise<boolean>
   updateTaskStatus: (taskId: string, status: TaskStatus) => Promise<boolean>
   assignTask: (taskId: string, agentId: string) => Promise<boolean>
   moveTask: (taskId: string, status: TaskStatus) => void
   addTask: (task: OlympusTask) => void
   addActivity: (activity: OlympusActivity) => void
-  
+  setSelectedProject: (projectId: string) => void
+
   // Toast
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void
   removeToast: (id: string) => void
@@ -204,6 +261,9 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
   toasts: [],
   isLoading: false,
 
+  projects: [],
+  selectedProjectId: 'olymp',
+
   openCreateTask: () => set({ isCreateTaskOpen: true }),
   closeCreateTask: () => set({ isCreateTaskOpen: false }),
   openAgentProfile: (agentId) => set({ isAgentProfileOpen: true, selectedAgentId: agentId }),
@@ -243,6 +303,95 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
     } catch (error) {
       console.error('Error fetching tasks:', error)
       get().showToast('Failed to fetch tasks', 'error')
+    }
+  },
+
+  fetchProjects: async () => {
+    try {
+      const response = await fetch('/api/projects')
+      if (!response.ok) throw new Error('Failed to fetch projects')
+      const data = await response.json()
+      set({ projects: data.projects || [] })
+    } catch (error) {
+      console.error('Error fetching projects:', error)
+    }
+  },
+
+  setSelectedProject: (projectId) => {
+    set({ selectedProjectId: projectId })
+  },
+
+  fetchVerifications: async (taskId) => {
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/verifications`)
+      if (!response.ok) throw new Error('Failed to fetch verifications')
+      const data = await response.json()
+      return data.verifications || []
+    } catch (error) {
+      console.error('Error fetching verifications:', error)
+      return []
+    }
+  },
+
+  approveTask: async (taskId, notes) => {
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/approve`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: notes || '' }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        throw new Error(errorData.error || 'Failed to approve task')
+      }
+
+      const data = await response.json()
+      const { agents } = get()
+      const updatedTask = mapTask(data.task, agents)
+
+      set((state) => ({
+        tasks: state.tasks.map((t) => (t.id === taskId ? updatedTask : t)),
+      }))
+
+      get().showToast('Task approved and marked done', 'success')
+      return true
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to approve task'
+      console.error('Error approving task:', error)
+      get().showToast(message, 'error')
+      return false
+    }
+  },
+
+  rejectTask: async (taskId, notes) => {
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/reject`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: notes || '' }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        throw new Error(errorData.error || 'Failed to reject task')
+      }
+
+      const data = await response.json()
+      const { agents } = get()
+      const updatedTask = mapTask(data.task, agents)
+
+      set((state) => ({
+        tasks: state.tasks.map((t) => (t.id === taskId ? updatedTask : t)),
+      }))
+
+      get().showToast('Task rejected — sent back to agent', 'info')
+      return true
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to reject task'
+      console.error('Error rejecting task:', error)
+      get().showToast(message, 'error')
+      return false
     }
   },
 
