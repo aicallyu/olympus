@@ -1,0 +1,29 @@
+name: Quality Gate
+
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - run: cd frontend && npm ci
+      - run: cd frontend && npx tsc --noEmit
+      - run: cd frontend && npm run build
+
+      - name: Notify Verification Engine
+        if: github.ref == 'refs/heads/main' && success()
+        run: |
+          curl -X POST "${{ secrets.SUPABASE_URL }}/functions/v1/post-deploy-check" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"project_id": "${{ vars.PROJECT_ID }}", "commit": "${{ github.sha }}"}'
