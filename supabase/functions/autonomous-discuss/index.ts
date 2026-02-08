@@ -21,7 +21,17 @@ interface AgentRecord {
   system_prompt: string | null;
 }
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey, x-client-info",
+};
+
 serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS_HEADERS });
+  }
+
   const startTime = Date.now();
 
   try {
@@ -54,10 +64,10 @@ serve(async (req: Request) => {
       agentMap.set(rec.name, rec);
     }
 
-    // Filter to agents that have endpoints (skip humans and unconfigured)
+    // Filter to agents that have endpoints configured
     const validAgents = agentNames.filter(name => {
       const rec = agentMap.get(name);
-      return rec && rec.api_endpoint && !rec.session_key?.startsWith("human:");
+      return rec && rec.api_endpoint;
     });
 
     // Step 3: Get recent context
@@ -211,14 +221,14 @@ Address the human directly. Start with: "Here's what we discussed:"`;
         agents_participated: contributions.length,
         total_tokens: totalTokens,
       }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
+      { status: 200, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
     );
 
   } catch (err) {
     console.error("autonomous-discuss error:", err);
     return new Response(
       JSON.stringify({ error: (err as Error).message }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      { status: 500, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
     );
   }
 });
