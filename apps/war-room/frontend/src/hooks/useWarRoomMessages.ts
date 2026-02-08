@@ -62,14 +62,16 @@ export function useWarRoomMessages(roomId: string) {
 
   // Send a text message
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, options?: { preferVoiceReply?: boolean }) => {
       const { error } = await supabase.from('war_room_messages').insert({
         room_id: roomId,
         sender_name: 'Juan', // TODO: get from auth context
         sender_type: 'human',
         content,
         content_type: 'text',
-        metadata: {},
+        metadata: {
+          prefer_voice_reply: options?.preferVoiceReply ?? false,
+        },
       });
       if (error) console.error('Failed to send:', error);
     },

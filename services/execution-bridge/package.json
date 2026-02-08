@@ -11,13 +11,18 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.0",
-    "simple-git": "^3.27.0",
-    "dotenv": "^16.4.7"
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "dotenv": "^16.4.7",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "simple-git": "^3.27.0"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/qrcode-terminal": "^0.12.2",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
-    "@types/node": "^22.10.0"
+    "typescript": "^5.7.0"
   },
   "engines": {
     "node": ">=20.0.0"
