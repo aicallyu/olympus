@@ -1,0 +1,26 @@
+[Unit]
+Description=OLYMP Execution Bridge
+Documentation=https://github.com/aicallyu/olympus
+After=network.target
+
+[Service]
+Type=simple
+User=argos
+WorkingDirectory=/home/argos/olympus/services/execution-bridge
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=olymp-bridge
+
+# Environment
+EnvironmentFile=/home/argos/olympus/services/execution-bridge/.env
+
+# Safety
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/argos/olympus
+
+[Install]
+WantedBy=multi-user.target
