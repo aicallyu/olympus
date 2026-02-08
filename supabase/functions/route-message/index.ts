@@ -9,7 +9,18 @@ const supabase = createClient(
 const OLLAMA_URL = Deno.env.get("OLLAMA_BASE_URL") || "http://172.29.96.1:11434";
 const KIMI_KEY = Deno.env.get("KIMI_API_KEY") || "";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey, x-client-info",
+};
+
 serve(async (req: Request) => {
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: CORS_HEADERS });
+  }
+
   try {
     const body = await req.json();
     const {
@@ -65,9 +76,7 @@ serve(async (req: Request) => {
       .eq("participant_type", "agent");
 
     // Look up agent records
-    const agentNames = agentParticipants
-      .filter(a => !a.participant_config?.session_key?.startsWith?.("human:"))
-      .map(a => a.participant_name);
+    const agentNames = agentParticipants.map(a => a.participant_name);
 
     const { data: agentRecords } = await supabase
       .from("agents")
@@ -83,8 +92,7 @@ serve(async (req: Request) => {
     const handRaiseResults = await Promise.all(
       agentNames.map(async (name) => {
         const rec = agentMap.get(name);
-        // Skip humans
-        if (rec?.session_key?.startsWith("human:")) return null;
+        if (!rec) return null;
         const result = await askHandRaise(rec, messageText, name);
         return { name, ...result };
       })
@@ -110,7 +118,10 @@ serve(async (req: Request) => {
 
   } catch (err) {
     console.error("route-message error:", err);
-    return new Response(JSON.stringify({ error: (err as Error).message }), { status: 500 });
+    return new Response(JSON.stringify({ error: (err as Error).message }), {
+      status: 500,
+      headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    });
   }
 });
 
@@ -121,6 +132,20 @@ serve(async (req: Request) => {
 async function handleFullResponse(roomId: string, messageText: string, targetAgents: string[]) {
   if (targetAgents.length === 0) {
     return json({ status: "no_targets" });
+  }
+
+  // If no content provided, fetch the latest human message from the room
+  let effectiveMessage = messageText;
+  if (!effectiveMessage) {
+    const { data: latestMsg } = await supabase
+      .from("war_room_messages")
+      .select("content")
+      .eq("room_id", roomId)
+      .eq("sender_type", "human")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+    effectiveMessage = latestMsg?.content || "Please respond.";
   }
 
   const { data: participants } = await supabase
@@ -147,12 +172,11 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
 
     if (!participant) return;
     if (participant.participant_type === "human") return;
-    if (agentRecord?.session_key?.startsWith("human:")) return;
 
     const startTime = Date.now();
 
     try {
-      const response = await callAgentFromRecord(agentRecord, participant, messageText, context, agentName);
+      const response = await callAgentFromRecord(agentRecord, participant, effectiveMessage, context, agentName);
       const responseTime = Date.now() - startTime;
       const modelUsed = agentRecord?.api_model || agentRecord?.model_primary || "unknown";
 
@@ -235,7 +259,7 @@ interface HandRaiseResult {
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
 }
 

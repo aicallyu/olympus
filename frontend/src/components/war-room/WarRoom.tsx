@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useWarRoomMessages } from '@/hooks/useWarRoomMessages';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { useOlympusStore } from '@/hooks/useOlympusStore';
 import { MessageBubble } from './MessageBubble';
 import { supabase, supabaseUrl, supabaseAnonKey } from '@/lib/supabase';
-import { Users, Plus, X, Mic, Square, Send, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Users, Plus, X, Mic, Square, Send, Loader2, ChevronDown, ChevronRight, ArrowLeft } from 'lucide-react';
 import type { WarRoomMessage } from '@/lib/war-room/types';
 
 interface Props {
@@ -38,6 +39,7 @@ const AGENT_AVATARS: Record<string, string> = {
 };
 
 export function WarRoom({ roomId }: Props) {
+  const navigate = useNavigate();
   const { messages, isLoading, isLoadingMore, hasMore, loadOlderMessages, sendMessage } = useWarRoomMessages(roomId);
   const { isRecording, duration, startRecording, stopRecording } = useVoiceRecorder();
   const [inputText, setInputText] = useState('');
@@ -50,6 +52,12 @@ export function WarRoom({ roomId }: Props) {
   const [dbAgents, setDbAgents] = useState<DbAgent[]>([]);
   const [isDiscussing, setIsDiscussing] = useState(false);
   const [collapsedDiscussions, setCollapsedDiscussions] = useState<Set<string>>(new Set());
+  // @mention autocomplete state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  // Command palette state
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
@@ -166,7 +174,7 @@ export function WarRoom({ roomId }: Props) {
       prev.map(p => p.participant_name === agentName ? { ...p, hand_raised: false, hand_reason: null } : p)
     );
     try {
-      await fetch(`${supabaseUrl}/functions/v1/route-message`, {
+      const res = await fetch(`${supabaseUrl}/functions/v1/route-message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -179,8 +187,13 @@ export function WarRoom({ roomId }: Props) {
           content: lastHumanMessageRef.current,
         }),
       });
-    } catch {
-      showToast(`Failed to get response from ${agentName}`, 'error');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      console.error(`requestFullResponse failed for ${agentName}:`, err);
+      showToast(`Failed to get response from ${agentName}: ${(err as Error).message}`, 'error');
     }
   }
 
@@ -196,7 +209,7 @@ export function WarRoom({ roomId }: Props) {
     );
 
     try {
-      await fetch(`${supabaseUrl}/functions/v1/route-message`, {
+      const res = await fetch(`${supabaseUrl}/functions/v1/route-message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -209,8 +222,13 @@ export function WarRoom({ roomId }: Props) {
           content: lastHumanMessageRef.current,
         }),
       });
-    } catch {
-      showToast('Failed to get responses', 'error');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      console.error('requestAllResponses failed:', err);
+      showToast(`Failed to get responses: ${(err as Error).message}`, 'error');
     }
   }
 
@@ -411,6 +429,107 @@ export function WarRoom({ roomId }: Props) {
     setShowAddAgent(false);
   }
 
+  // ---- Input change handler with @mention and /command detection ----
+
+  const handleInputChange = (value: string) => {
+    setInputText(value);
+
+    // Command palette: show when input is exactly "/" or starts with "/"
+    if (value === '/') {
+      setShowCommandPalette(true);
+      setMentionQuery(null);
+      return;
+    } else if (value.startsWith('/') && !value.includes(' ')) {
+      setShowCommandPalette(true);
+      setMentionQuery(null);
+      return;
+    } else {
+      setShowCommandPalette(false);
+    }
+
+    // @mention detection: find @ followed by partial name
+    const cursorPos = inputRef.current?.selectionStart || value.length;
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
+
+    if (mentionMatch) {
+      setMentionQuery(mentionMatch[1].toLowerCase());
+      setMentionIndex(0);
+    } else {
+      setMentionQuery(null);
+    }
+  };
+
+  const mentionMatches = mentionQuery !== null
+    ? participants
+        .filter(p => p.participant_type === 'agent')
+        .filter(p => p.participant_name.toLowerCase().startsWith(mentionQuery))
+    : [];
+
+  const handleMentionSelect = (name: string) => {
+    const cursorPos = inputRef.current?.selectionStart || inputText.length;
+    const textBeforeCursor = inputText.slice(0, cursorPos);
+    const textAfterCursor = inputText.slice(cursorPos);
+    const beforeMention = textBeforeCursor.replace(/@\w*$/, '');
+    const newText = `${beforeMention}@${name} ${textAfterCursor}`;
+    setInputText(newText);
+    setMentionQuery(null);
+    inputRef.current?.focus();
+  };
+
+  const handleCommandSelect = (command: string) => {
+    if (command === '/discuss') {
+      setInputText('/discuss ');
+      setShowCommandPalette(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Handle @mention navigation
+    if (mentionQuery !== null && mentionMatches.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionIndex(i => Math.min(i + 1, mentionMatches.length - 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionIndex(i => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        handleMentionSelect(mentionMatches[mentionIndex].participant_name);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionQuery(null);
+        return;
+      }
+    }
+
+    // Handle command palette navigation
+    if (showCommandPalette) {
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        handleCommandSelect('/discuss');
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowCommandPalette(false);
+        return;
+      }
+    }
+
+    // Normal enter to send
+    if (e.key === 'Enter') {
+      handleSend();
+    }
+  };
+
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -468,12 +587,21 @@ export function WarRoom({ roomId }: Props) {
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Header */}
         <div className="px-3 py-2.5 md:px-5 md:py-3 border-b border-border bg-[rgba(10,10,14,0.6)] backdrop-blur flex items-center justify-between gap-2 shrink-0">
-          <div className="min-w-0">
-            <h2 className="text-xs md:text-sm font-mono uppercase tracking-[0.15em] text-text-primary truncate">{roomName || 'Loading...'}</h2>
-            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-text-muted">
-              {activeAgents.length} agents · {participants.length} total
-              {anyHandsRaised && <span className="text-primary ml-1">· hands raised</span>}
-            </p>
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => navigate('/war-room')}
+              className="p-1.5 rounded-lg border border-border bg-[rgba(22,22,32,0.6)] text-text-muted hover:text-text-primary hover:border-primary/40 transition-colors shrink-0"
+              title="Back to War Room list"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <div className="min-w-0">
+              <h2 className="text-xs md:text-sm font-mono uppercase tracking-[0.15em] text-text-primary truncate">{roomName || 'Loading...'}</h2>
+              <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-text-muted">
+                {activeAgents.length} agents · {participants.length} total
+                {anyHandsRaised && <span className="text-primary ml-1">· hands raised</span>}
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
@@ -555,6 +683,49 @@ export function WarRoom({ roomId }: Props) {
             </div>
           )}
 
+          {/* @mention autocomplete dropdown */}
+          {mentionQuery !== null && mentionMatches.length > 0 && (
+            <div className="mb-2 rounded-lg border border-border bg-[rgba(16,16,24,0.95)] backdrop-blur-sm shadow-lg overflow-hidden">
+              <div className="px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-[0.15em] text-text-muted border-b border-border/40">
+                Mention agent
+              </div>
+              {mentionMatches.map((p, i) => (
+                <button
+                  key={p.id}
+                  onClick={() => handleMentionSelect(p.participant_name)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${
+                    i === mentionIndex
+                      ? 'bg-[rgba(184,150,90,0.15)] text-text-primary'
+                      : 'text-text-secondary hover:bg-[rgba(22,22,32,0.6)]'
+                  }`}
+                >
+                  <span className="text-base shrink-0">{AGENT_AVATARS[p.participant_name] || '🤖'}</span>
+                  <span className="text-xs font-mono uppercase tracking-[0.1em]">{p.participant_name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Command palette dropdown */}
+          {showCommandPalette && (
+            <div className="mb-2 rounded-lg border border-border bg-[rgba(16,16,24,0.95)] backdrop-blur-sm shadow-lg overflow-hidden">
+              <div className="px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-[0.15em] text-text-muted border-b border-border/40">
+                Commands
+              </div>
+              <button
+                onClick={() => handleCommandSelect('/discuss')}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left bg-[rgba(184,150,90,0.15)] text-text-primary transition-colors hover:bg-[rgba(184,150,90,0.2)]"
+              >
+                <span className="text-base shrink-0">🔄</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-mono text-text-primary">/discuss [topic]</p>
+                  <p className="text-[10px] font-mono text-text-muted">Start autonomous team discussion</p>
+                </div>
+                <span className="text-[10px] font-mono text-text-muted px-1.5 py-0.5 rounded bg-[rgba(22,22,32,0.6)] border border-border/40">Tab</span>
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center gap-1.5 md:gap-2">
             {isRecording ? (
               <div className="flex items-center gap-1.5">
@@ -586,11 +757,12 @@ export function WarRoom({ roomId }: Props) {
             )}
 
             <input
+              ref={inputRef}
               type="text"
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder={isRecording ? 'Recording...' : isDiscussing ? 'Discussion in progress...' : 'Type a message or /discuss [topic]...'}
+              onChange={(e) => handleInputChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={isRecording ? 'Recording...' : isDiscussing ? 'Discussion in progress...' : 'Type a message, @agent, or /discuss...'}
               disabled={isRecording || isTranscribing || isDiscussing}
               className="flex-1 min-w-0 bg-[rgba(22,22,32,0.6)] border border-border rounded-lg px-3 py-2 md:px-4 md:py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/60 font-mono disabled:opacity-50"
             />
@@ -605,8 +777,8 @@ export function WarRoom({ roomId }: Props) {
             </button>
           </div>
 
-          <p className="text-[10px] font-mono text-text-muted mt-1 hidden md:block">
-            /discuss [topic] — team discussion · @AGENT for direct response
+          <p className="text-[10px] font-mono text-text-muted mt-1">
+            Type <span className="text-primary/60">@</span> to mention · <span className="text-primary/60">/discuss</span> for team discussion
           </p>
         </div>
       </div>

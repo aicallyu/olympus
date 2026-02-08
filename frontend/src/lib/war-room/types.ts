@@ -57,6 +57,7 @@ export interface MessageMetadata {
   original_type?: string;
   voice_transcribed?: boolean;
   error?: boolean;
+  event?: string;
   // Discussion fields
   discussion?: boolean;
   discussion_id?: string;

@@ -65,7 +65,13 @@ export function MessageBubble({ message, isOwnMessage }: Props) {
         <div
           className={`rounded-xl px-3 py-2 md:px-4 md:py-2.5 ${
             message.sender_type === 'system'
-              ? 'bg-[rgba(239,68,68,0.1)] text-error border border-error/20'
+              ? message.metadata?.error
+                ? 'bg-[rgba(239,68,68,0.1)] text-error border border-error/20'
+                : message.metadata?.event === 'agent_added' || message.content?.includes('was added') || message.content?.includes('created') || message.content?.includes('joined')
+                  ? 'bg-[rgba(184,150,90,0.08)] text-primary border border-primary/20'
+                  : message.content?.includes('✅') || message.content?.includes('success')
+                    ? 'bg-[rgba(34,197,94,0.08)] text-success border border-success/20'
+                    : 'bg-[rgba(118,122,132,0.08)] text-text-secondary border border-border/30'
               : isOwnMessage
                 ? 'bg-[rgba(184,150,90,0.15)] text-text-primary border border-primary/20'
                 : message.sender_type === 'agent'
@@ -73,6 +79,12 @@ export function MessageBubble({ message, isOwnMessage }: Props) {
                   : 'bg-[rgba(22,22,32,0.4)] text-text-primary'
           }`}
         >
+          {isVoiceTranscribed && !message.audio_url && (
+            <div className="flex items-center gap-1.5 mb-1 text-primary/70">
+              <span className="text-sm">🎤</span>
+              <span className="text-[10px] font-mono uppercase tracking-[0.1em]">Voice transcription</span>
+            </div>
+          )}
           <p className="text-[13px] md:text-sm leading-relaxed whitespace-pre-wrap font-mono">{message.content}</p>
 
           {message.audio_url && (
