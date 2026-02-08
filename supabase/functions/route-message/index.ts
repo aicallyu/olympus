@@ -126,6 +126,24 @@ serve(async (req: Request) => {
 });
 
 // ============================================================
+// EXECUTION PAYLOAD EXTRACTOR
+// ============================================================
+
+function extractExecutionPayload(agentResponse: string): Record<string, unknown> | null {
+  const executionBlockRegex = /```execution\s*\n([\s\S]*?)\n```/;
+  const match = agentResponse.match(executionBlockRegex);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[1]);
+    if (parsed.files && Array.isArray(parsed.files) && parsed.branch && parsed.commit_message) {
+      return { type: "code_commit", payload: { files: parsed.files, branch: parsed.branch, commit_message: parsed.commit_message, base_branch: parsed.base_branch || "main" } };
+    }
+    if (parsed.type && parsed.payload) return parsed;
+  } catch (e) { console.error("Failed to parse execution block:", e); }
+  return null;
+}
+
+// ============================================================
 // HANDLER: Full Response (used for hand-raise click + @mentions)
 // ============================================================
 
@@ -179,6 +197,7 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
       const response = await callAgentFromRecord(agentRecord, participant, effectiveMessage, context, agentName);
       const responseTime = Date.now() - startTime;
       const modelUsed = agentRecord?.api_model || agentRecord?.model_primary || "unknown";
+      const executionPayload = extractExecutionPayload(response.text);
 
       const { data: insertedMsg } = await supabase
         .from("war_room_messages")
@@ -193,6 +212,7 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
             tokens_used: response.tokensUsed,
             response_time_ms: responseTime,
             routing_reason: response.routingReason || "",
+            ...(executionPayload ? { execution: executionPayload } : {}),
           },
         })
         .select()
