@@ -7,22 +7,30 @@
 // ============================================================
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createServer } from 'http';
+import { readFileSync, existsSync } from 'fs';
 import { config } from './config.js';
 import { validateExecution } from './validator.js';
 import { GitExecutor } from './git-executor.js';
 import { WarRoomNotifier } from './notifier.js';
+import { NotificationSender } from './notification-sender.js';
 import type { CodeCommitPayload, ExecutionQueueItem, ExecutionResult } from './types.js';
+
+const HTTP_PORT = parseInt(process.env.HTTP_PORT || '3456', 10);
+const QR_PATH = './auth/whatsapp-qr.png';
 
 class ExecutionBridge {
   private supabase: SupabaseClient;
   private gitExecutor: GitExecutor;
   private notifier: WarRoomNotifier;
+  private notificationSender: NotificationSender;
   private processing = false;
 
   constructor() {
     this.supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
     this.gitExecutor = new GitExecutor();
     this.notifier = new WarRoomNotifier();
+    this.notificationSender = new NotificationSender(this.supabase);
   }
 
   /**
@@ -48,6 +56,119 @@ class ExecutionBridge {
     setInterval(() => this.processPendingItems(), config.pollIntervalMs);
 
     console.log('[Bridge] Running. Waiting for execution requests...\n');
+
+    // Start HTTP server for QR code and status
+    this.startHttpServer();
+
+    // Start notification sender for WhatsApp alerts
+    this.notificationSender.start();
+  }
+
+  /**
+   * Start HTTP server to serve QR code and status
+   */
+  private startHttpServer(): void {
+    const server = createServer((req, res) => {
+      const url = req.url || '/';
+
+      // CORS headers
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET');
+
+      if (url === '/qr' || url === '/whatsapp-qr.png') {
+        // Serve QR code image
+        if (existsSync(QR_PATH)) {
+          try {
+            const image = readFileSync(QR_PATH);
+            res.writeHead(200, { 'Content-Type': 'image/png' });
+            res.end(image);
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            res.end('Error reading QR code');
+          }
+        } else {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('QR code not found. Bridge may not be ready yet.');
+        }
+      } else if (url === '/status' || url === '/health') {
+        // Status endpoint
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'running',
+          whatsapp: this.notificationSender.isWhatsAppReady() ? 'connected' : 'waiting',
+          qrAvailable: existsSync(QR_PATH),
+          qrUrl: `http://${this.getIpAddress()}:${HTTP_PORT}/qr`
+        }, null, 2));
+      } else {
+        // Main page with instructions
+        const ip = this.getIpAddress();
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`<!DOCTYPE html>
+<html>
+<head>
+  <title>OLYMP Bridge</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #1a1a1a; color: #fff; }
+    h1 { color: #00d4aa; }
+    .qr { background: #fff; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }
+    .qr img { max-width: 100%; height: auto; }
+    .instructions { background: #2a2a2a; padding: 20px; border-radius: 8px; margin: 20px 0; }
+    .instructions ol { line-height: 1.8; }
+    code { background: #333; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+    .status { padding: 10px 20px; border-radius: 4px; display: inline-block; }
+    .status.waiting { background: #f0a500; color: #000; }
+    .status.connected { background: #00d4aa; color: #000; }
+  </style>
+</head>
+<body>
+  <h1>🔱 OLYMP Execution Bridge</h1>
+  
+  <div class="qr">
+    <h2>WhatsApp QR Code</h2>
+    ${existsSync(QR_PATH) ? `<img src="/qr" alt="WhatsApp QR Code">` : '<p>QR Code wird generiert...</p>'}
+  </div>
+
+  <div class="instructions">
+    <h3>📱 So verknüpfst du WhatsApp:</h3>
+    <ol>
+      <li>Öffne WhatsApp auf deinem Handy</li>
+      <li>Gehe zu <strong>Einstellungen → Verknüpfte Geräte</strong></li>
+      <li>Tippe auf <strong>Gerät verknüpfen</strong></li>
+      <li>Scanne den QR-Code oben</li>
+    </ol>
+  </div>
+
+  <div class="instructions">
+    <h3>🔗 Direktlinks:</h3>
+    <ul>
+      <li>QR Code: <code>http://${ip}:${HTTP_PORT}/qr</code></li>
+      <li>Status: <code>http://${ip}:${HTTP_PORT}/status</code></li>
+    </ul>
+  </div>
+
+  <p style="text-align: center; margin-top: 40px; color: #666;">
+    OLYMP Execution Bridge v1.0.0
+  </p>
+</body>
+</html>`);
+      }
+    });
+
+    server.listen(HTTP_PORT, () => {
+      const ip = this.getIpAddress();
+      console.log(`[HTTP] Server running on http://${ip}:${HTTP_PORT}`);
+      console.log(`[HTTP] QR Code: http://${ip}:${HTTP_PORT}/qr`);
+      console.log(`[HTTP] Status: http://${ip}:${HTTP_PORT}/status\n`);
+    });
+  }
+
+  /**
+   * Get IP address for display
+   */
+  private getIpAddress(): string {
+    // Use environment variable or default to localhost
+    return process.env.BRIDGE_HOST || '100.82.20.112';
   }
 
   /**

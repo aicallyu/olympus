@@ -154,16 +154,30 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
 
   // If no content provided, fetch the latest human message from the room
   let effectiveMessage = messageText;
+  let preferVoiceReply = false;
+  
   if (!effectiveMessage) {
     const { data: latestMsg } = await supabase
       .from("war_room_messages")
-      .select("content")
+      .select("content, metadata")
       .eq("room_id", roomId)
       .eq("sender_type", "human")
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
     effectiveMessage = latestMsg?.content || "Please respond.";
+    preferVoiceReply = latestMsg?.metadata?.prefer_voice_reply ?? false;
+  } else {
+    // When triggered by @mention, get the triggering message's metadata
+    const { data: latestMsg } = await supabase
+      .from("war_room_messages")
+      .select("metadata")
+      .eq("room_id", roomId)
+      .eq("sender_type", "human")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+    preferVoiceReply = latestMsg?.metadata?.prefer_voice_reply ?? false;
   }
 
   const { data: participants } = await supabase
@@ -218,8 +232,8 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
         .select()
         .single();
 
-      // Voice TTS if agent has a voice_id configured
-      if (agentRecord?.voice_id && insertedMsg) {
+      // Voice TTS if user requested voice reply AND agent has voice_id
+      if (preferVoiceReply && agentRecord?.voice_id && insertedMsg) {
         try {
           await generateVoice(response.text, agentRecord.voice_id, insertedMsg.id);
         } catch (ttsErr) {
