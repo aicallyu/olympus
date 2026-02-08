@@ -469,9 +469,9 @@ async function callAnthropic(systemPrompt: string, message: string, model: strin
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: systemPrompt,
-      messages: [{ role: "user", content: message }],
+      messages: [{ role: "user", content: message + "\n\nREMINDER: Wrap ALL code output in ```execution blocks with JSON structure (files, branch, commit_message). Do NOT use ```typescript or ```javascript." }],
     }),
   });
 
@@ -502,7 +502,7 @@ async function callKimi(systemPrompt: string, message: string, model: string): P
         { role: "system", content: systemPrompt },
         { role: "user", content: message },
       ],
-      max_tokens: 1024,
+      max_tokens: 4096,
     }),
   });
 
@@ -523,9 +523,10 @@ async function callOllama(systemPrompt: string, message: string, model: string):
       model: model || "qwen2.5-coder:32b",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: message },
+        { role: "user", content: message + "\n\nREMINDER: Wrap ALL code output in ```execution blocks with JSON structure (files, branch, commit_message). Do NOT use ```typescript or ```javascript." },
       ],
       stream: false,
+      options: { num_predict: 4096 },
     }),
     signal: AbortSignal.timeout(60000),
   });
@@ -547,9 +548,9 @@ async function callOpenAICompatible(endpoint: string, systemPrompt: string, mess
       model,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: message },
+        { role: "user", content: message + "\n\nREMINDER: Wrap ALL code output in ```execution blocks with JSON structure (files, branch, commit_message). Do NOT use ```typescript or ```javascript." },
       ],
-      max_tokens: 1024,
+      max_tokens: 4096,
     }),
   });
 
