@@ -64,10 +64,17 @@ serve(async (req: Request) => {
       .map(a => a.participant_name);
 
     if (mentioned.length > 0) {
-      return await handleFullResponse(room_id, messageText, mentioned);
+      return await handleFullResponse(room_id, messageText, mentioned, preferVoiceReply);
     }
 
-    // Step 4: Hand-raise mode — ask all agents if they want to speak
+    // Step 4: Voice messages with preferVoiceReply = true → auto-respond with all agents
+    if (content_type === "voice" && preferVoiceReply) {
+      console.log("[route-message] Voice message with preferVoiceReply=true, auto-responding with all agents");
+      const allAgentNames = agentParticipants.map(a => a.participant_name);
+      return await handleFullResponse(room_id, messageText, allAgentNames, true);
+    }
+
+    // Step 5: Hand-raise mode — ask all agents if they want to speak
     // First, reset all hands from previous message
     await supabase
       .from("war_room_participants")
@@ -147,7 +154,7 @@ function extractExecutionPayload(agentResponse: string): Record<string, unknown>
 // HANDLER: Full Response (used for hand-raise click + @mentions)
 // ============================================================
 
-async function handleFullResponse(roomId: string, messageText: string, targetAgents: string[]) {
+async function handleFullResponse(roomId: string, messageText: string, targetAgents: string[], preferVoiceReply: boolean = false) {
   if (targetAgents.length === 0) {
     return json({ status: "no_targets" });
   }
