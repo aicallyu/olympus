@@ -494,7 +494,6 @@ export function WarRoom({ roomId }: Props) {
 
   const mentionMatches = mentionQuery !== null
     ? participants
-        .filter(p => p.participant_type === 'agent')
         .filter(p => p.participant_name.toLowerCase().startsWith(mentionQuery))
     : [];
 
