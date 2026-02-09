@@ -123,7 +123,7 @@ export function MessageBubble({ message, isOwnMessage }: Props) {
                 onClick={() => setShowTranscript(!showTranscript)}
                 className="text-[10px] font-mono text-text-muted hover:text-primary transition-colors w-fit"
               >
-                {showTranscript ? 'Hide transcript' : 'Show transcript'}
+                {showTranscript ? 'Transcript ▲' : 'Transcript ▼'}
               </button>
             </div>
           )}
