@@ -88,6 +88,8 @@ export function PixelOffice() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [tappedAgent, setTappedAgent] = useState<string | null>(null);
+  const [tappedRoom, setTappedRoom] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>(0);
   const lastUpdateRef = useRef<number>(Date.now());
@@ -420,7 +422,7 @@ export function PixelOffice() {
                 }}
                 onMouseEnter={() => !isMobile && setHoveredRoom(key)}
                 onMouseLeave={() => !isMobile && setHoveredRoom(null)}
-                onClick={() => isMobile && setTappedRoom(tappedRoom === key ? null : key)}
+                onClick={() => isMobile && setHoveredRoom(hoveredRoom === key ? null : key)}
               >
                 <div className="absolute -top-8 left-2 flex items-center gap-2 bg-[#0a0a12] px-3 py-1 rounded-full border border-[#2a2a4a]">
                   <Icon className="w-4 h-4 text-[#7a7aaa]" />
@@ -467,7 +469,7 @@ export function PixelOffice() {
           
           return (
             <div key={desk.agent} className="absolute" style={{ left: desk.x - 60, top: desk.y - 50 }}
-              onMouseEnter={() => !isMobile && setHoveredAgent(desk.agent)} 
+              onMouseEnter={() => !isMobile && setHoveredAgent(desk.agent)}
               onMouseLeave={() => !isMobile && setHoveredAgent(null)}
               onClick={() => isMobile && setTappedAgent(tappedAgent === desk.agent ? null : desk.agent)}>
               <div className="w-28 h-24 rounded-xl border-2 transition-all duration-300 relative touch-manipulation"
