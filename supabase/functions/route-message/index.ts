@@ -28,8 +28,11 @@ serve(async (req: Request) => {
       action, target_agents,
     } = body;
 
+    console.log("[route-message] Received:", { action, room_id, sender_name, content_type, has_content: !!content, has_audio: !!audio_url });
+
     // ---- ACTION: full_response (frontend requests specific agent responses) ----
     if (action === "full_response") {
+      console.log("[route-message] full_response for:", target_agents);
       return await handleFullResponse(room_id, content, target_agents || []);
     }
 
@@ -53,8 +56,10 @@ serve(async (req: Request) => {
       .eq("is_active", true);
 
     const agentParticipants = participants?.filter(p => p.participant_type === "agent") || [];
+    console.log("[route-message] Agents in room:", agentParticipants.map(a => a.participant_name));
 
     if (agentParticipants.length === 0) {
+      console.log("[route-message] No agents in room, exiting");
       return json({ status: "no_agents" });
     }
 
@@ -64,8 +69,11 @@ serve(async (req: Request) => {
       .map(a => a.participant_name);
 
     if (mentioned.length > 0) {
+      console.log("[route-message] @mentions found:", mentioned);
       return await handleFullResponse(room_id, messageText, mentioned);
     }
+
+    console.log("[route-message] No mentions, entering hand-raise mode");
 
     // Step 4: Hand-raise mode — ask all agents if they want to speak
     // First, reset all hands from previous message
@@ -87,13 +95,18 @@ serve(async (req: Request) => {
     for (const rec of agentRecords || []) {
       agentMap.set(rec.name, rec);
     }
+    console.log("[route-message] Agent records found:", agentRecords?.map(r => `${r.name}(${r.api_endpoint ? 'has_endpoint' : 'NO_endpoint'})`));
 
     // Ask all agents in parallel if they want to speak
     const handRaiseResults = await Promise.all(
       agentNames.map(async (name) => {
         const rec = agentMap.get(name);
-        if (!rec) return null;
+        if (!rec) {
+          console.log(`[route-message] No agent record for "${name}", skipping`);
+          return null;
+        }
         const result = await askHandRaise(rec, messageText, name);
+        console.log(`[route-message] Hand-raise ${name}: wants_to_speak=${result.wants_to_speak}, reason=${result.reason}`);
         return { name, ...result };
       })
     );
@@ -104,16 +117,21 @@ serve(async (req: Request) => {
       const participant = agentParticipants.find(a => a.participant_name === result.name);
       if (!participant) continue;
 
-      await supabase
+      const { error: updateErr } = await supabase
         .from("war_room_participants")
         .update({
           hand_raised: result.wants_to_speak,
           hand_reason: result.wants_to_speak ? result.reason : null,
         })
         .eq("id", participant.id);
+
+      if (updateErr) {
+        console.error(`[route-message] Failed to update hand for ${result.name}:`, updateErr);
+      }
     }
 
     const raisedHands = handRaiseResults.filter(r => r?.wants_to_speak).map(r => r!.name);
+    console.log("[route-message] Raised hands:", raisedHands);
     return json({ status: "hands_raised", agents: raisedHands });
 
   } catch (err) {
@@ -168,6 +186,8 @@ function extractExecutionPayload(agentResponse: string): Record<string, unknown>
 // ============================================================
 
 async function handleFullResponse(roomId: string, messageText: string, targetAgents: string[]) {
+  console.log("[handleFullResponse] targets:", targetAgents, "message:", messageText?.substring(0, 80));
+
   if (targetAgents.length === 0) {
     return json({ status: "no_targets" });
   }
@@ -184,6 +204,7 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
       .limit(1)
       .single();
     effectiveMessage = latestMsg?.content || "Please respond.";
+    console.log("[handleFullResponse] Fetched latest message from DB:", effectiveMessage?.substring(0, 80));
   }
 
   const { data: participants } = await supabase
@@ -196,6 +217,8 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
     .from("agents")
     .select("name, role, session_key, api_endpoint, api_model, system_prompt, model_primary, model_escalation, voice_id")
     .in("name", targetAgents);
+
+  console.log("[handleFullResponse] Agent records:", agentRecords?.map(r => `${r.name}: endpoint=${r.api_endpoint}, model=${r.api_model}`));
 
   const agentMap = new Map<string, AgentRecord>();
   for (const rec of agentRecords || []) {
