@@ -3,8 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { OfficeAgent } from './OfficeAgent';
 import { 
   Coffee, Users, Dumbbell, Monitor, Zap, Brain, Code, Shield, 
-  Flame, BookOpen, MessageSquare, Terminal, CheckCircle,
-  ZoomIn, ZoomOut, Maximize2, Minimize2
+  Flame, BookOpen, MessageSquare, Terminal, CheckCircle, Crown, Sword, Scroll, Eye
 } from 'lucide-react';
 
 interface Task {
@@ -33,67 +32,140 @@ interface Agent {
   timeInState: number;
 }
 
-const DEPARTMENTS: Record<string, { icon: any; color: string; bgColor: string }> = {
-  'Command': { icon: Zap, color: '#ffd700', bgColor: 'rgba(255, 215, 0, 0.1)' },
-  'Engineering': { icon: Code, color: '#00d9ff', bgColor: 'rgba(0, 217, 255, 0.1)' },
-  'AI Lab': { icon: Brain, color: '#ff6bff', bgColor: 'rgba(255, 107, 255, 0.1)' },
-  'Creative': { icon: Flame, color: '#ff6b9d', bgColor: 'rgba(255, 107, 157, 0.1)' },
-  'Operations': { icon: Shield, color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.1)' },
-  'Knowledge': { icon: BookOpen, color: '#b8965a', bgColor: 'rgba(184, 150, 90, 0.1)' },
+// Olymp Theme Colors - Each agent has their own color world
+const AGENT_THEMES: Record<string, { 
+  primary: string; 
+  secondary: string; 
+  accent: string;
+  marble: string;
+  icon: any;
+  title: string;
+}> = {
+  ARGOS: { 
+    primary: '#FFD700', 
+    secondary: '#B8860B', 
+    accent: '#FFA500',
+    marble: '#FFF8DC',
+    icon: Crown,
+    title: 'King of Olympus'
+  },
+  ATLAS: { 
+    primary: '#00CED1', 
+    secondary: '#008B8B', 
+    accent: '#5F9EA0',
+    marble: '#E0FFFF',
+    icon: Eye,
+    title: 'Frontend Titan'
+  },
+  HERCULOS: { 
+    primary: '#FF4500', 
+    secondary: '#DC143C', 
+    accent: '#FF6347',
+    marble: '#FFE4E1',
+    icon: Sword,
+    title: 'Backend Champion'
+  },
+  ATHENA: { 
+    primary: '#C0C0C0', 
+    secondary: '#A9A9A9', 
+    accent: '#D3D3D3',
+    marble: '#F5F5F5',
+    icon: Shield,
+    title: 'Goddess of QA'
+  },
+  APOLLO: { 
+    primary: '#FF1493', 
+    secondary: '#C71585', 
+    accent: '#FF69B4',
+    marble: '#FFF0F5',
+    icon: Flame,
+    title: 'Creative Muse'
+  },
+  PROMETHEUS: { 
+    primary: '#32CD32', 
+    secondary: '#228B22', 
+    accent: '#00FF7F',
+    marble: '#F0FFF0',
+    icon: Zap,
+    title: 'Infrastructure Titan'
+  },
+  HERMES: { 
+    primary: '#DAA520', 
+    secondary: '#8B4513', 
+    accent: '#CD853F',
+    marble: '#FFF8DC',
+    icon: Scroll,
+    title: 'Messenger of Docs'
+  },
+  Claude: { 
+    primary: '#9370DB', 
+    secondary: '#8A2BE2', 
+    accent: '#BA55D3',
+    marble: '#E6E6FA',
+    icon: Brain,
+    title: 'AI Architect'
+  },
+  Juan: { 
+    primary: '#4169E1', 
+    secondary: '#0000CD', 
+    accent: '#1E90FF',
+    marble: '#F0F8FF',
+    icon: Crown,
+    title: 'System Architect'
+  },
+  Nathanael: { 
+    primary: '#20B2AA', 
+    secondary: '#008080', 
+    accent: '#48D1CC',
+    marble: '#E0FFFF',
+    icon: Code,
+    title: 'Frontend Developer'
+  },
 };
 
-const DESKS = [
-  { x: 150, y: 220, agent: 'ARGOS', dept: 'Command', zone: 'Command Center', label: 'Hub' },
-  { x: 350, y: 220, agent: 'ATLAS', dept: 'Engineering', zone: 'Frontend Squad', label: 'FE Lead' },
-  { x: 550, y: 220, agent: 'Claude', dept: 'AI Lab', zone: 'AI Research', label: 'Architect' },
-  { x: 150, y: 380, agent: 'ATHENA', dept: 'Operations', zone: 'Quality Assurance', label: 'QA Lead' },
-  { x: 350, y: 380, agent: 'HERCULOS', dept: 'Engineering', zone: 'Backend Squad', label: 'BE Lead' },
-  { x: 550, y: 380, agent: 'APOLLO', dept: 'Creative', zone: 'Design Studio', label: 'Creative Dir' },
-  { x: 150, y: 540, agent: 'PROMETHEUS', dept: 'Operations', zone: 'Infrastructure', label: 'DevOps' },
-  { x: 350, y: 540, agent: 'HERMES', dept: 'Knowledge', zone: 'Documentation', label: 'Tech Writer' },
-  { x: 850, y: 300, agent: 'Juan', dept: 'Command', zone: 'Executive Suite', label: 'System Arch' },
-  { x: 850, y: 450, agent: 'Nathanael', dept: 'Engineering', zone: 'Frontend Squad', label: 'Frontend Dev' },
-];
-
-const ROOMS = {
-  conference: { x: 1050, y: 320, width: 200, height: 140, label: 'War Room', icon: Terminal, capacity: 8 },
-  kitchen: { x: 80, y: 80, width: 180, height: 120, label: 'The Kitchen', icon: Coffee, capacity: 4 },
-  gym: { x: 900, y: 80, width: 160, height: 120, label: 'Power Gym', icon: Dumbbell, capacity: 3 },
-  lounge: { x: 450, y: 60, width: 220, height: 120, label: 'Chill Zone', icon: MessageSquare, capacity: 6 },
+// Olymp Temple Grid Layout - Clean, no overlaps
+const TEMPLE_LAYOUT = {
+  // Top Row - Command & Strategy
+  ARGOS:      { x: 100, y: 80,  width: 180, height: 140, room: 'throne' },
+  Juan:       { x: 320, y: 80,  width: 160, height: 140, room: 'executive' },
+  
+  // Middle Row - Engineering & AI
+  ATLAS:      { x: 60,  y: 260, width: 160, height: 130, room: 'workshop' },
+  HERCULOS:   { x: 240, y: 260, width: 160, height: 130, room: 'forge' },
+  Claude:     { x: 420, y: 260, width: 160, height: 130, room: 'library' },
+  Nathanael:  { x: 600, y: 260, width: 140, height: 130, room: 'frontend' },
+  
+  // Bottom Row - Support & Creative
+  ATHENA:     { x: 60,  y: 430, width: 140, height: 130, room: 'temple' },
+  PROMETHEUS: { x: 220, y: 430, width: 160, height: 130, room: 'lab' },
+  APOLLO:     { x: 400, y: 430, width: 140, height: 130, room: 'studio' },
+  HERMES:     { x: 560, y: 430, width: 140, height: 130, room: 'archive' },
+  
+  // Common Areas - Right Side
+  kitchen:    { x: 760, y: 80,  width: 150, height: 120, label: 'Ambrosia Hall', icon: Coffee },
+  lounge:     { x: 760, y: 220, width: 150, height: 120, label: 'Resting Gardens', icon: MessageSquare },
+  gym:        { x: 760, y: 360, width: 150, height: 120, label: 'Training Grounds', icon: Dumbbell },
+  warRoom:    { x: 760, y: 500, width: 150, height: 100, label: 'War Room', icon: Terminal },
 };
 
-function getPositionInRoom(room: typeof ROOMS.kitchen, occupied: {x:number,y:number}[]): {x:number,y:number} {
-  const padding = 35;
-  let attempts = 0;
-  let pos: {x:number,y:number};
-  
-  do {
-    pos = {
-      x: room.x + padding + Math.random() * (room.width - padding * 2),
-      y: room.y + padding + Math.random() * (room.height - padding * 2)
-    };
-    attempts++;
-  } while (attempts < 10 && occupied.some(p => Math.abs(p.x - pos.x) < 25 && Math.abs(p.y - pos.y) < 25));
-  
-  return pos;
+function getRoomCenter(roomKey: string): {x: number, y: number} {
+  const room = TEMPLE_LAYOUT[roomKey as keyof typeof TEMPLE_LAYOUT];
+  if (!room || !('room' in room)) return { x: 400, y: 300 };
+  return {
+    x: room.x + room.width / 2,
+    y: room.y + room.height / 2
+  };
 }
 
 export function PixelOffice() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
-  const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
-  const [scale, setScale] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [tappedAgent, setTappedAgent] = useState<string | null>(null);
-  const [tappedRoom, setTappedRoom] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
   const animationRef = useRef<number>(0);
   const lastUpdateRef = useRef<number>(Date.now());
 
+  // Fetch agents
   useEffect(() => {
     const fetchData = async () => {
       const { data: agentsData } = await supabase
@@ -117,34 +189,25 @@ export function PixelOffice() {
       const lastTasksMap = new Map(lastTasks?.map((t: Task) => [t.id, t]) || []);
 
       const agentsWithData: Agent[] = agentsData.map((agent: any) => {
-        const desk = DESKS.find(d => d.agent === agent.name);
+        const layout = TEMPLE_LAYOUT[agent.name as keyof typeof TEMPLE_LAYOUT];
+        const center = layout && 'room' in layout ? 
+          { x: layout.x + layout.width / 2, y: layout.y + layout.height / 2 } :
+          { x: 400, y: 300 };
+          
         const currentTask = agent.current_task_id ? currentTasksMap.get(agent.current_task_id) : null;
         const lastTask = agent.last_completed_task_id ? lastTasksMap.get(agent.last_completed_task_id) : null;
         
         const isWorking = agent.status === 'working' && currentTask;
-        const justFinished = lastTask && agent.last_task_completed_at && 
-          (Date.now() - new Date(agent.last_task_completed_at).getTime()) < 5 * 60 * 1000;
-
-        let state: Agent['state'] = 'idle';
-        let activity = 'Idle';
-
-        if (isWorking) {
-          state = 'working';
-          activity = `Working: ${currentTask.title}`;
-        } else if (justFinished) {
-          state = 'break';
-          activity = `Cooldown after: ${lastTask.title}`;
-        }
 
         return {
           ...agent,
-          position: desk ? { x: desk.x, y: desk.y } : { x: 400, y: 300 },
+          position: center,
           targetPosition: null,
           currentTask,
           lastTask,
           lastTaskCompletedAt: agent.last_task_completed_at,
-          activity,
-          state,
+          activity: isWorking ? `Working: ${currentTask.title}` : 'Idle',
+          state: isWorking ? 'working' : 'idle',
           timeInState: 0,
         };
       });
@@ -155,7 +218,7 @@ export function PixelOffice() {
     fetchData();
 
     const subscription = supabase
-      .channel('agent-tasks-status')
+      .channel('agent-status')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'agents' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => fetchData())
       .subscribe();
@@ -163,142 +226,63 @@ export function PixelOffice() {
     return () => { subscription.unsubscribe(); };
   }, []);
 
-  // Mobile detection
-  useEffect(() => {
-    const checkMobile = () => {
-      const mobile = window.innerWidth < 768 || 'ontouchstart' in window;
-      setIsMobile(mobile);
-      if (mobile && scale === 1) {
-        setScale(0.6); // Default zoom out for mobile
-        setPan({ x: -100, y: 0 });
-      }
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  // Touch/Pan handlers
-  const handleTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
-    if (!isMobile) return;
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    setIsDragging(true);
-    setDragStart({ x: clientX - pan.x, y: clientY - pan.y });
-  };
-
-  const handleTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
-    if (!isDragging || !isMobile) return;
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    setPan({ x: clientX - dragStart.x, y: clientY - dragStart.y });
-  };
-
-  const handleTouchEnd = () => setIsDragging(false);
-
-  const handleZoomIn = () => setScale(s => Math.min(s + 0.2, 2));
-  const handleZoomOut = () => setScale(s => Math.max(s - 0.2, 0.4));
-  const handleResetView = () => {
-    setScale(isMobile ? 0.6 : 1);
-    setPan(isMobile ? { x: -100, y: 0 } : { x: 0, y: 0 });
-  };
-
+  // Animation loop
   useEffect(() => {
     const animate = () => {
       const now = Date.now();
       const dt = (now - lastUpdateRef.current) / 1000;
       lastUpdateRef.current = now;
 
-      setAgents(prev => {
-        const occupied = prev.map(a => a.position);
-        
-        return prev.map(agent => {
-          const timeInState = agent.timeInState + dt;
+      setAgents(prev => prev.map(agent => {
+        const timeInState = agent.timeInState + dt;
 
-          if (!agent.targetPosition) {
-            if (agent.state === 'working' && agent.currentTask) {
-              return { ...agent, timeInState };
-            }
-
-            if (agent.lastTask && agent.lastTaskCompletedAt && 
-                (Date.now() - new Date(agent.lastTaskCompletedAt).getTime()) < 5 * 60 * 1000 &&
-                agent.state !== 'break' && timeInState > 2) {
-              const breakRoom = Math.random() > 0.5 ? ROOMS.kitchen : ROOMS.lounge;
-              const pos = getPositionInRoom(breakRoom, occupied);
-              return { 
-                ...agent, 
-                targetPosition: pos,
-                state: 'break',
-                activity: `Break after: ${agent.lastTask.title}`,
-                timeInState: 0
-              };
-            }
-
-            const discussingAgents = prev.filter(a => a.state === 'meeting' && a.name !== agent.name);
-            if (agent.state === 'meeting' && discussingAgents.length > 0 && timeInState > 2) {
-              const pos = getPositionInRoom(ROOMS.conference, occupied);
-              return {
-                ...agent,
-                targetPosition: pos,
-                activity: `Meeting with: ${discussingAgents.map(a => a.name).join(', ')}`,
-                timeInState: 0
-              };
-            }
-
-            if (agent.state === 'break' && timeInState > 120) {
-              const desk = DESKS.find(d => d.agent === agent.name);
-              if (desk) {
-                return {
-                  ...agent,
-                  targetPosition: { x: desk.x, y: desk.y },
-                  state: 'idle',
-                  activity: 'Back at desk',
-                  timeInState: 0
-                };
-              }
-            }
-
-            if (agent.status === 'idle' && !agent.currentTask && Math.random() < 0.0003) {
-              const zones = [ROOMS.lounge, ROOMS.kitchen];
-              const randomZone = zones[Math.floor(Math.random() * zones.length)];
-              const pos = getPositionInRoom(randomZone, occupied);
-              return {
-                ...agent,
-                targetPosition: pos,
-                state: 'idle',
-                activity: 'Taking a stroll',
-                timeInState: 0
-              };
-            }
-
+        if (!agent.targetPosition) {
+          // Working agents stay in their room
+          if (agent.state === 'working') {
             return { ...agent, timeInState };
           }
 
-          const dx = agent.targetPosition.x - agent.position.x;
-          const dy = agent.targetPosition.y - agent.position.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-
-          if (distance < 3) {
-            return { 
-              ...agent, 
-              targetPosition: null, 
-              position: agent.targetPosition,
-              timeInState: 0
-            };
+          // Movement logic for breaks
+          if (agent.state === 'break' && timeInState > 120) {
+            const room = TEMPLE_LAYOUT[agent.name as keyof typeof TEMPLE_LAYOUT];
+            if (room && 'room' in room) {
+              return {
+                ...agent,
+                targetPosition: { x: room.x + room.width / 2, y: room.y + room.height / 2 },
+                state: 'idle',
+                activity: 'Back in temple',
+                timeInState: 0
+              };
+            }
           }
 
-          const speed = agent.state === 'working' ? 3 : 1.5;
-          
-          return {
-            ...agent,
-            position: {
-              x: agent.position.x + (dx / distance) * speed,
-              y: agent.position.y + (dy / distance) * speed,
-            },
-            timeInState
+          return { ...agent, timeInState };
+        }
+
+        // Move towards target
+        const dx = agent.targetPosition.x - agent.position.x;
+        const dy = agent.targetPosition.y - agent.position.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < 3) {
+          return { 
+            ...agent, 
+            targetPosition: null, 
+            position: agent.targetPosition,
+            timeInState: 0
           };
-        });
-      });
+        }
+
+        const speed = agent.state === 'working' ? 2 : 1;
+        return {
+          ...agent,
+          position: {
+            x: agent.position.x + (dx / distance) * speed,
+            y: agent.position.y + (dy / distance) * speed,
+          },
+          timeInState
+        };
+      }));
 
       animationRef.current = requestAnimationFrame(animate);
     };
@@ -308,11 +292,12 @@ export function PixelOffice() {
   }, []);
 
   const getAgentsInRoom = (roomKey: string) => {
-    const room = ROOMS[roomKey as keyof typeof ROOMS];
-    return agents.filter(agent => 
-      agent.position.x >= room.x && agent.position.x <= room.x + room.width &&
-      agent.position.y >= room.y && agent.position.y <= room.y + room.height
-    );
+    const room = TEMPLE_LAYOUT[roomKey as keyof typeof TEMPLE_LAYOUT];
+    if (!room || 'room' in room) return [];
+    return agents.filter(agent => {
+      const agentRoom = TEMPLE_LAYOUT[agent.name as keyof typeof TEMPLE_LAYOUT];
+      return agentRoom && 'room' in agentRoom && agentRoom.room === roomKey;
+    });
   };
 
   const timeAgo = (date: string | null) => {
@@ -324,242 +309,284 @@ export function PixelOffice() {
   };
 
   const workingCount = agents.filter(a => a.state === 'working').length;
-  const inMeetingCount = agents.filter(a => a.state === 'meeting').length;
 
   return (
-    <div 
-      ref={containerRef}
-      className="w-full h-full bg-gradient-to-br from-[#0a0a12] via-[#12121e] to-[#0f1620] relative overflow-hidden touch-none"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      onMouseDown={handleTouchStart}
-      onMouseMove={handleTouchMove}
-      onMouseUp={handleTouchEnd}
-      onMouseLeave={handleTouchEnd}
-    >
-      <div className="absolute inset-0 opacity-20" style={{
-        backgroundImage: `linear-gradient(rgba(0, 217, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 217, 255, 0.05) 1px, transparent 1px)`,
-        backgroundSize: '60px 60px',
-      }} />
+    <div className="w-full h-full bg-[#0a0a0f] relative overflow-hidden font-mono">
+      {/* Marble Temple Background */}
+      <div 
+        className="absolute inset-0 opacity-10"
+        style={{
+          backgroundImage: `
+            linear-gradient(90deg, rgba(255,215,0,0.1) 1px, transparent 1px),
+            linear-gradient(rgba(255,215,0,0.1) 1px, transparent 1px)
+          `,
+          backgroundSize: '80px 80px',
+        }}
+      />
 
-      {/* Mobile Zoom Controls */}
-      {isMobile && (
-        <div className="absolute bottom-20 right-4 z-50 flex flex-col gap-2">
-          <button 
-            onClick={handleZoomIn}
-            className="w-12 h-12 bg-[#0a0a12]/90 backdrop-blur border border-[#00d9ff]/30 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
-          >
-            <ZoomIn className="w-6 h-6 text-[#00d9ff]" />
-          </button>
-          <button 
-            onClick={handleZoomOut}
-            className="w-12 h-12 bg-[#0a0a12]/90 backdrop-blur border border-[#00d9ff]/30 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
-          >
-            <ZoomOut className="w-6 h-6 text-[#00d9ff]" />
-          </button>
-          <button 
-            onClick={handleResetView}
-            className="w-12 h-12 bg-[#0a0a12]/90 backdrop-blur border border-[#ffd700]/30 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
-          >
-            {scale === (isMobile ? 0.6 : 1) && pan.x === (isMobile ? -100 : 0) ? (
-              <Maximize2 className="w-5 h-5 text-[#ffd700]" />
-            ) : (
-              <Minimize2 className="w-5 h-5 text-[#ffd700]" />
-            )}
-          </button>
+      {/* Temple Header */}
+      <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-[#1a1a2e] to-transparent z-20 flex items-center justify-between px-6">
+        <div className="flex items-center gap-3">
+          <Crown className="w-6 h-6 text-[#FFD700]" />
+          <span className="text-[#FFD700] text-lg font-bold tracking-wider">OLYMPUS COMMAND</span>
         </div>
-      )}
-
-      <div className="absolute top-4 left-4 right-4 z-30 flex justify-between">
-        <div className="flex gap-2 md:gap-3">
-          <div className="bg-[#0a0a12]/90 backdrop-blur border border-[#e94560]/30 rounded-xl px-3 md:px-4 py-2">
-            <div className="flex items-center gap-1 md:gap-2">
-              <Monitor className="w-3 h-3 md:w-4 md:h-4 text-[#e94560]" />
-              <span className="text-[#eaeaea] text-xs md:text-sm font-mono font-bold">{workingCount} Working</span>
-            </div>
+        <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-[#e94560] animate-pulse" />
+            <span className="text-[#eaeaea]">{workingCount} Working</span>
           </div>
-          <div className="bg-[#0a0a12]/90 backdrop-blur border border-[#00d9ff]/30 rounded-xl px-3 md:px-4 py-2">
-            <div className="flex items-center gap-1 md:gap-2">
-              <Users className="w-3 h-3 md:w-4 md:h-4 text-[#00d9ff]" />
-              <span className="text-[#eaeaea] text-xs md:text-sm font-mono font-bold">{inMeetingCount} Meeting</span>
-            </div>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-[#ffd700]" />
+            <span className="text-[#eaeaea]">{agents.length - workingCount} Idle</span>
           </div>
         </div>
-        {!isMobile && (
-          <div className="flex gap-1">
-            <button onClick={handleZoomOut} className="p-2 hover:bg-[#1a1a2e] rounded-lg"><ZoomOut className="w-4 h-4 text-[#7a7aaa]" /></button>
-            <span className="text-[#7a7aaa] text-sm font-mono px-2">{Math.round(scale * 100)}%</span>
-            <button onClick={handleZoomIn} className="p-2 hover:bg-[#1a1a2e] rounded-lg"><ZoomIn className="w-4 h-4 text-[#7a7aaa]" /></button>
-          </div>
-        )}
       </div>
 
-      <div 
-        className="relative w-full h-full pt-20 origin-top-left transition-transform duration-75"
-        style={{
-          transform: `scale(${scale}) translate(${pan.x}px, ${pan.y}px)`,
-          width: isMobile ? '150%' : '100%',
-          height: isMobile ? '150%' : '100%',
-        }}
-      >
-        {Object.entries(ROOMS).map(([key, room]) => {
-          const Icon = room.icon;
-          const agentsInRoom = getAgentsInRoom(key);
-          const isHovered = !isMobile && hoveredRoom === key;
-          const isTapped = isMobile && tappedRoom === key;
-          const showTooltip = isHovered || isTapped;
+      {/* Temple Grid */}
+      <div className="absolute inset-0 pt-20 pb-24 px-4 overflow-auto">
+        <div className="relative w-[950px] h-[650px] mx-auto">
           
-          return (
-            <div key={key}>
+          {/* Greek Columns Decoration */}
+          {[50, 250, 450, 650, 850].map((x, i) => (
+            <div 
+              key={i}
+              className="absolute top-0 bottom-0 w-4 bg-gradient-to-b from-[#DAA520] via-[#B8860B] to-[#8B4513] opacity-30"
+              style={{ left: x }}
+            />
+          ))}
+
+          {/* Agent Temple Rooms */}
+          {Object.entries(TEMPLE_LAYOUT).map(([key, room]) => {
+            if (!('room' in room)) return null;
+            
+            const theme = AGENT_THEMES[key];
+            const Icon = theme.icon;
+            const agent = agents.find(a => a.name === key);
+            const isHovered = hoveredAgent === key;
+            
+            return (
               <div
-                className="absolute rounded-2xl border-2 transition-all duration-300 touch-manipulation"
+                key={key}
+                className="absolute rounded-lg border-2 transition-all duration-300 overflow-hidden"
                 style={{
-                  left: room.x, top: room.y, width: room.width, height: room.height,
-                  borderColor: showTooltip ? '#00d9ff' : '#2a2a4a',
-                  backgroundColor: showTooltip ? 'rgba(0, 217, 255, 0.08)' : 'rgba(20, 20, 35, 0.9)',
-                  boxShadow: showTooltip ? '0 0 30px rgba(0, 217, 255, 0.2)' : 'none',
+                  left: room.x,
+                  top: room.y,
+                  width: room.width,
+                  height: room.height,
+                  borderColor: isHovered ? theme.primary : theme.secondary,
+                  background: `linear-gradient(135deg, ${theme.marble}15 0%, ${theme.primary}10 100%)`,
+                  boxShadow: isHovered ? `0 0 20px ${theme.primary}40` : 'none',
                 }}
-                onMouseEnter={() => !isMobile && setHoveredRoom(key)}
-                onMouseLeave={() => !isMobile && setHoveredRoom(null)}
-                onClick={() => isMobile && setHoveredRoom(hoveredRoom === key ? null : key)}
+                onMouseEnter={() => setHoveredAgent(key)}
+                onMouseLeave={() => setHoveredAgent(null)}
               >
-                <div className="absolute -top-8 left-2 flex items-center gap-2 bg-[#0a0a12] px-3 py-1 rounded-full border border-[#2a2a4a]">
-                  <Icon className="w-4 h-4 text-[#7a7aaa]" />
-                  <span className="text-xs text-[#eaeaea] font-mono">{room.label}</span>
-                  <span className="text-[10px] text-[#7a7aaa] font-mono">({agentsInRoom.length}/{room.capacity})</span>
-                </div>
-
-                {showTooltip && agentsInRoom.length > 0 && (
-                  <div className="absolute z-40 bg-[#0a0a12]/95 backdrop-blur border border-[#00d9ff]/30 rounded-xl p-3 min-w-[200px] md:min-w-[250px]" 
-                    style={{ 
-                      left: isMobile ? 0 : (room.x > 500 ? -260 : room.width + 10), 
-                      top: isMobile ? room.height + 10 : 10,
-                      maxWidth: isMobile ? room.width : 'auto'
-                    }}>
-                    <p className="text-[10px] text-[#00d9ff] font-mono uppercase mb-2">Who's here:</p>
-                    {agentsInRoom.map(agent => (
-                      <div key={agent.name} className="mb-2 last:mb-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-[#eaeaea] font-mono font-bold">{agent.name}</span>
-                          <span className={`w-1.5 h-1.5 rounded-full ${
-                            agent.state === 'working' ? 'bg-[#e94560]' : agent.state === 'break' ? 'bg-[#ffd700]' : 'bg-[#00d9ff]'
-                          }`} />
-                        </div>
-                        <p className="text-[10px] text-[#7a7aaa] font-mono truncate">{agent.activity}</p>
-                        {agent.lastTask && (
-                          <p className="text-[9px] text-[#4a7c59] font-mono">Last: {agent.lastTask.title} ({timeAgo(agent.lastTaskCompletedAt)})</p>
-                        )}
-                      </div>
-                    ))}
+                {/* Room Header */}
+                <div 
+                  className="h-7 flex items-center justify-between px-3 border-b"
+                  style={{ borderColor: theme.primary + '40', backgroundColor: theme.primary + '15' }}
+                >
+                  <div className="flex items-center gap-2">
+                    <Icon className="w-3.5 h-3.5" style={{ color: theme.primary }} />
+                    <span className="text-[9px] text-[#eaeaea] font-bold uppercase tracking-wider">{key}</span>
                   </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-
-        {DESKS.map((desk) => {
-          const dept = DEPARTMENTS[desk.dept];
-          const Icon = dept.icon;
-          const agent = agents.find(a => a.name === desk.agent);
-          const isHovered = !isMobile && hoveredAgent === desk.agent;
-          const isTapped = isMobile && tappedAgent === desk.agent;
-          const showTooltip = isHovered || isTapped;
-          
-          return (
-            <div key={desk.agent} className="absolute" style={{ left: desk.x - 60, top: desk.y - 50 }}
-              onMouseEnter={() => !isMobile && setHoveredAgent(desk.agent)}
-              onMouseLeave={() => !isMobile && setHoveredAgent(null)}
-              onClick={() => isMobile && setTappedAgent(tappedAgent === desk.agent ? null : desk.agent)}>
-              <div className="w-28 h-24 rounded-xl border-2 transition-all duration-300 relative touch-manipulation"
-                style={{
-                  borderColor: showTooltip ? dept.color : '#2a2a4a',
-                  backgroundColor: showTooltip ? dept.bgColor : 'rgba(15, 15, 26, 0.95)',
-                }}>
-                <div className="h-6 flex items-center justify-center border-b border-[#2a2a4a] bg-[#1a1a2e] rounded-t-xl">
-                  <Icon className="w-3 h-3 mr-1" style={{ color: dept.color }} />
-                  <span className="text-[7px] text-[#eaeaea] font-mono uppercase">{desk.zone}</span>
+                  <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" 
+                    style={{ backgroundColor: theme.primary, color: '#0a0a0f' }}>
+                    {theme.title}
+                  </span>
                 </div>
-                <div className="flex flex-col items-center justify-center h-[calc(100%-24px)]">
-                  <div className="w-14 h-10 rounded border-2 mb-1 flex items-center justify-center" style={{ borderColor: dept.color }}>
-                    <div className="w-10 h-6 bg-[#0a0a12] rounded flex items-center justify-center">
-                      <div className="w-8 h-4 rounded animate-pulse" style={{ backgroundColor: dept.color, opacity: 0.3 }} />
+
+                {/* Room Content */}
+                <div className="p-2 h-[calc(100%-28px)] flex flex-col">
+                  {/* Thematic Elements */}
+                  {key === 'ARGOS' && (
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="w-16 h-12 bg-[#FFD700]/20 rounded-lg border border-[#FFD700]/40 flex items-center justify-center">
+                        <Crown className="w-8 h-8 text-[#FFD700]/60" />
+                      </div>
                     </div>
-                  </div>
-                  <span className="text-[9px] text-[#7a7aaa] font-mono">{desk.agent}</span>
-                </div>
-                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[6px] font-mono uppercase whitespace-nowrap"
-                  style={{ backgroundColor: dept.color, color: '#0a0a12' }}>
-                  {desk.label}
-                </div>
-              </div>
-
-              {showTooltip && agent && (
-                <div className="absolute z-50 bg-[#0a0a12]/95 backdrop-blur border border-[#00d9ff]/30 rounded-xl p-3 min-w-[180px] md:min-w-[220px]"
-                  style={{
-                    left: isMobile ? -20 : (desk.x > 600 ? -240 : 130),
-                    top: isMobile ? -160 : -20,
-                    maxWidth: isMobile ? '200px' : 'auto'
-                  }}>
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="text-[#eaeaea] font-bold font-mono">{agent.name}</h4>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase ${
-                      agent.state === 'working' ? 'bg-[#e94560]/20 text-[#e94560]' :
-                      agent.state === 'break' ? 'bg-[#ffd700]/20 text-[#ffd700]' : 'bg-[#00d9ff]/20 text-[#00d9ff]'
-                    }`}>{agent.state}</span>
-                  </div>
-                  
-                  {agent.currentTask ? (
-                    <>
-                      <p className="text-[10px] text-[#7a7aaa] font-mono mb-1">Current Task:</p>
-                      <p className="text-xs text-[#eaeaea] font-mono font-bold mb-2 truncate">{agent.currentTask.title}</p>
-                      <div className="w-full h-2 bg-[#1a1a2e] rounded-full mb-1">
-                        <div className="h-full bg-[#00d9ff] rounded-full transition-all" style={{ width: `${agent.currentTask.progress}%` }} />
+                  )}
+                  {key === 'ATLAS' && (
+                    <div className="flex-1 grid grid-cols-2 gap-1 p-1">
+                      <div className="bg-[#00CED1]/20 rounded border border-[#00CED1]/30" />
+                      <div className="bg-[#00CED1]/20 rounded border border-[#00CED1]/30" />
+                      <div className="bg-[#00CED1]/20 rounded border border-[#00CED1]/30" />
+                      <div className="bg-[#00CED1]/20 rounded border border-[#00CED1]/30" />
+                    </div>
+                  )}
+                  {key === 'HERCULOS' && (
+                    <div className="flex-1 flex items-center justify-center gap-2">
+                      <div className="w-4 h-12 bg-[#FF4500]/30 rounded border border-[#FF4500]/50" />
+                      <Sword className="w-6 h-6 text-[#FF4500]/50" />
+                    </div>
+                  )}
+                  {key === 'Claude' && (
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="w-14 h-14 bg-[#9370DB]/20 rounded-full border border-[#9370DB]/40 flex items-center justify-center">
+                        <Brain className="w-8 h-8 text-[#9370DB]/60" />
                       </div>
-                      <p className="text-[10px] text-[#00d9ff] font-mono">{agent.currentTask.progress}% complete</p>
-                      {agent.currentTask.started_at && (
-                        <p className="text-[9px] text-[#7a7aaa] font-mono mt-1">Started: {timeAgo(agent.currentTask.started_at)}</p>
+                    </div>
+                  )}
+                  
+                  {/* Agent Status */}
+                  {agent && (
+                    <div className="mt-auto flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className={`w-1.5 h-1.5 rounded-full ${
+                          agent.state === 'working' ? 'bg-[#e94560] animate-pulse' : 'bg-[#ffd700]'
+                        }`} />
+                        <span className="text-[8px] text-[#7a7aaa]">{agent.state}</span>
+                      </div>
+                      {agent.currentTask && (
+                        <div className="w-12 h-1 bg-[#1a1a2e] rounded-full overflow-hidden">
+                          <div 
+                            className="h-full rounded-full transition-all"
+                            style={{ 
+                              width: `${agent.currentTask.progress}%`,
+                              backgroundColor: theme.primary
+                            }}
+                          />
+                        </div>
                       )}
-                    </>
-                  ) : (<p className="text-[10px] text-[#7a7aaa] font-mono italic">No active task</p>)}
-
-                  {agent.lastTask && (
-                    <div className="mt-2 pt-2 border-t border-[#2a2a4a]">
-                      <p className="text-[9px] text-[#4a7c59] font-mono flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3" />Last: {agent.lastTask.title} ({timeAgo(agent.lastTaskCompletedAt)})
-                      </p>
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          );
-        })}
 
-        {agents.map((agent) => (
-          <OfficeAgent key={agent.id} agent={agent} onClick={() => setSelectedAgent(agent)} />
-        ))}
+                {/* Hover Tooltip */}
+                {isHovered && agent && (
+                  <div className="absolute z-50 bg-[#0a0a0f]/95 backdrop-blur border rounded-lg p-3 min-w-[200px]"
+                    style={{ borderColor: theme.primary + '40', left: room.width + 10, top: 10 }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[#eaeaea] font-bold">{agent.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded" 
+                        style={{ backgroundColor: theme.primary + '20', color: theme.primary }}>
+                        {agent.state}
+                      </span>
+                    </div>
+                    {agent.currentTask ? (
+                      <>
+                        <p className="text-[10px] text-[#7a7aaa] mb-1">{agent.currentTask.title}</p>
+                        <div className="w-full h-1.5 bg-[#1a1a2e] rounded-full">
+                          <div className="h-full rounded-full transition-all" 
+                            style={{ width: `${agent.currentTask.progress}%`, backgroundColor: theme.primary }} />
+                        </div>
+                        <p className="text-[9px] text-[#7a7aaa] mt-1">{agent.currentTask.progress}%</p>
+                      </>
+                    ) : (
+                      <p className="text-[10px] text-[#7a7aaa] italic">No active task</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Common Areas */}
+          {['kitchen', 'lounge', 'gym', 'warRoom'].map((key) => {
+            const room = TEMPLE_LAYOUT[key as keyof typeof TEMPLE_LAYOUT];
+            if (!room || 'room' in room) return null;
+            
+            const Icon = room.icon;
+            const isHovered = hoveredRoom === key;
+            
+            return (
+              <div
+                key={key}
+                className="absolute rounded-lg border-2 border-[#DAA520]/40 bg-[#1a1a2e]/80 transition-all duration-300"
+                style={{
+                  left: room.x,
+                  top: room.y,
+                  width: room.width,
+                  height: room.height,
+                  boxShadow: isHovered ? '0 0 20px rgba(218,165,32,0.3)' : 'none',
+                }}
+                onMouseEnter={() => setHoveredRoom(key)}
+                onMouseLeave={() => setHoveredRoom(null)}
+              >
+                <div className="h-6 flex items-center justify-center border-b border-[#DAA520]/30 bg-[#DAA520]/10">
+                  <Icon className="w-3.5 h-3.5 text-[#DAA520] mr-2" />
+                  <span className="text-[9px] text-[#DAA520] font-bold">{room.label}</span>
+                </div>
+                <div className="p-2 flex items-center justify-center h-[calc(100%-24px)]">
+                  {key === 'kitchen' && <Coffee className="w-8 h-8 text-[#DAA520]/40" />}
+                  {key === 'lounge' && <MessageSquare className="w-8 h-8 text-[#4ecdc4]/40" />}
+                  {key === 'gym' && <Dumbbell className="w-8 h-8 text-[#e94560]/40" />}
+                  {key === 'warRoom' && <Terminal className="w-8 h-8 text-[#ffd700]/40" />}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Agents */}
+          {agents.map((agent) => (
+            <OfficeAgent
+              key={agent.id}
+              agent={agent}
+              theme={AGENT_THEMES[agent.name]}
+              onClick={() => setSelectedAgent(agent)}
+            />
+          ))}
+        </div>
       </div>
 
+      {/* Status Bar - Bottom */}
+      <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0a0a0f] via-[#0a0a0f] to-transparent z-30">
+        <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
+          {/* Agent Status List */}
+          <div className="flex gap-2 overflow-x-auto pb-2 max-w-[70%]">
+            {agents.map(agent => {
+              const theme = AGENT_THEMES[agent.name];
+              return (
+                <div 
+                  key={agent.id}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all hover:scale-105"
+                  style={{ 
+                    borderColor: theme.primary + '40',
+                    backgroundColor: theme.primary + '10'
+                  }}
+                  onClick={() => setSelectedAgent(agent)}
+                >
+                  <div className={`w-2 h-2 rounded-full ${
+                    agent.state === 'working' ? 'bg-[#e94560] animate-pulse' : 'bg-[#ffd700]'
+                  }`} />
+                  <span className="text-[10px] text-[#eaeaea] font-bold whitespace-nowrap">{agent.name}</span>
+                  <span className="text-[9px] text-[#7a7aaa] uppercase">{agent.state}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Legend */}
+          <div className="flex gap-3 text-[10px]">
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-[#e94560] animate-pulse" />
+              <span className="text-[#7a7aaa]">Working</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-[#ffd700]" />
+              <span className="text-[#7a7aaa]">Idle</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Selected Agent Panel */}
       {selectedAgent && (
-        <div className="absolute bottom-4 right-4 w-80 bg-[#0a0a12]/95 backdrop-blur border border-[#00d9ff]/30 rounded-2xl p-4 z-40">
+        <div className="absolute bottom-24 right-4 w-72 bg-[#0a0a0f]/95 backdrop-blur border border-[#FFD700]/30 rounded-xl p-4 z-40">
           <div className="flex justify-between items-start mb-3">
             <div>
-              <h3 className="text-[#eaeaea] font-bold font-mono text-lg">{selectedAgent.name}</h3>
-              <p className="text-[#7a7aaa] text-xs font-mono">{selectedAgent.role}</p>
+              <h3 className="text-[#eaeaea] font-bold text-lg">{selectedAgent.name}</h3>
+              <p className="text-[#7a7aaa] text-xs">{selectedAgent.role}</p>
             </div>
             <button onClick={() => setSelectedAgent(null)} className="text-[#7a7aaa] hover:text-[#eaeaea]">×</button>
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${
-                selectedAgent.state === 'working' ? 'bg-[#e94560] animate-pulse' :
-                selectedAgent.state === 'break' ? 'bg-[#ffd700]' : 'bg-[#00d9ff]'
+                selectedAgent.state === 'working' ? 'bg-[#e94560] animate-pulse' : 'bg-[#ffd700]'
               }`} />
-              <span className="text-[#eaeaea] text-sm font-mono capitalize">{selectedAgent.state}</span>
+              <span className="text-[#eaeaea] text-sm capitalize">{selectedAgent.state}</span>
             </div>
-            <p className="text-[#7a7aaa] text-xs font-mono">{selectedAgent.activity}</p>
+            <p className="text-[#7a7aaa] text-xs">{selectedAgent.activity}</p>
           </div>
         </div>
       )}

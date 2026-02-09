@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-interface AgentState {
+interface Agent {
   id: string;
   name: string;
   role: string;
@@ -8,41 +8,47 @@ interface AgentState {
   type: 'ai' | 'human';
   position: { x: number; y: number };
   targetPosition: { x: number; y: number } | null;
-  currentTask: { title: string } | null;
-  activity: string;
-  breakType?: 'coffee' | 'gym' | 'chill' | null;
+  state: 'working' | 'break' | 'training' | 'meeting' | 'idle';
+}
+
+interface Theme {
+  primary: string;
+  secondary: string;
+  accent: string;
 }
 
 interface Props {
-  agent: AgentState;
+  agent: Agent;
+  theme: Theme;
   onClick: () => void;
 }
 
-// Agent colors by name
-const AGENT_COLORS: Record<string, { body: string; head: string; accent: string }> = {
-  ARGOS: { body: '#b8965a', head: '#d4a85a', accent: '#ffd700' },
-  ATLAS: { body: '#5a7c8a', head: '#7a9caa', accent: '#00d9ff' },
-  ATHENA: { body: '#8a5a8a', head: '#aa7aaa', accent: '#ff6bff' },
-  HERCULOS: { body: '#5a8a5a', head: '#7aaa7a', accent: '#6bff6b' },
-  APOLLO: { body: '#ff6b9d', head: '#ff8aad', accent: '#ffb8d1' },
-  PROMETHEUS: { body: '#ff8c42', head: '#ffaa6b', accent: '#ffc494' },
-  HERMES: { body: '#6b6bff', head: '#8a8aff', accent: '#adadff' },
-  Claude: { body: '#9b59b6', head: '#b07cc6', accent: '#d4a5e3' },
-  Juan: { body: '#3b82f6', head: '#60a5fa', accent: '#93c5fd' },
-  Nathanael: { body: '#22c55e', head: '#4ade80', accent: '#86efac' },
+// Olymp God Sprites - Each with unique visual identity
+const GOD_SPRITES: Record<string, { 
+  head: string; 
+  body: string; 
+  detail: string;
+  crown?: boolean;
+  helmet?: boolean;
+  wings?: boolean;
+  staff?: boolean;
+}> = {
+  ARGOS: { head: '#FFD700', body: '#B8860B', detail: '#FFA500', crown: true },
+  ATLAS: { head: '#87CEEB', body: '#4682B4', detail: '#00CED1', helmet: true },
+  HERCULOS: { head: '#CD5C5C', body: '#8B0000', detail: '#FF4500', helmet: true },
+  ATHENA: { head: '#E6E6FA', body: '#C0C0C0', detail: '#D3D3D3', helmet: true },
+  APOLLO: { head: '#FFB6C1', body: '#FF1493', detail: '#FF69B4', staff: true },
+  PROMETHEUS: { head: '#90EE90', body: '#228B22', detail: '#32CD32' },
+  HERMES: { head: '#F4A460', body: '#D2691E', detail: '#CD853F', wings: true },
+  Claude: { head: '#DDA0DD', body: '#9370DB', detail: '#BA55D3', staff: true },
+  Juan: { head: '#4169E1', body: '#0000CD', detail: '#1E90FF', crown: true },
+  Nathanael: { head: '#20B2AA', body: '#008080', detail: '#48D1CC' },
 };
 
-// Break type icons
-const BREAK_ICONS: Record<string, string> = {
-  coffee: '☕',
-  gym: '💪',
-  chill: '😎',
-};
-
-export function OfficeAgent({ agent, onClick }: Props) {
+export function OfficeAgent({ agent, theme, onClick }: Props) {
   const [direction, setDirection] = useState<'left' | 'right'>('right');
   const [isWalking, setIsWalking] = useState(false);
-  const colors = AGENT_COLORS[agent.name] || { body: '#666', head: '#888', accent: '#aaa' };
+  const sprite = GOD_SPRITES[agent.name] || { head: '#888', body: '#666', detail: '#aaa' };
 
   useEffect(() => {
     if (agent.targetPosition) {
@@ -56,105 +62,83 @@ export function OfficeAgent({ agent, onClick }: Props) {
   }, [agent.targetPosition, agent.position]);
 
   const getStatusColor = () => {
-    switch (agent.status) {
+    switch (agent.state) {
       case 'working': return '#e94560';
-      case 'idle': return '#ffd700';
-      case 'offline': return '#666';
-      default: return '#666';
+      case 'meeting': return '#00d9ff';
+      case 'break': return '#ffd700';
+      default: return '#22c55e';
     }
   };
 
   return (
     <div
-      className="absolute cursor-pointer z-30 transition-transform hover:scale-110"
-      style={{
-        left: agent.position.x - 14,
-        top: agent.position.y - 28,
-        width: 28,
-        height: 56,
-      }}
+      className="absolute cursor-pointer z-40 transition-transform hover:scale-110"
+      style={{ left: agent.position.x - 16, top: agent.position.y - 32, width: 32, height: 64 }}
       onClick={onClick}
     >
-      {/* Pixel Character */}
       <div className="relative" style={{ transform: direction === 'left' ? 'scaleX(-1)' : 'scaleX(1)' }}>
-        {/* Status indicator */}
+        {/* Status Aura */}
         <div 
-          className="absolute -top-3 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full animate-pulse shadow-lg"
-          style={{ 
-            backgroundColor: getStatusColor(),
-            boxShadow: `0 0 8px ${getStatusColor()}`,
-          }}
+          className="absolute -top-4 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full animate-pulse"
+          style={{ backgroundColor: getStatusColor(), boxShadow: `0 0 12px ${getStatusColor()}` }}
         />
         
-        {/* Break icon above head */}
-        {agent.breakType && agent.status === 'idle' && (
-          <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs animate-bounce">
-            {BREAK_ICONS[agent.breakType]}
+        {/* Crown for Kings */}
+        {sprite.crown && (
+          <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-2">
+            <div className="w-full h-full bg-[#FFD700]" style={{ clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' }} />
           </div>
+        )}
+
+        {/* Wings for Hermes */}
+        {sprite.wings && (
+          <>
+            <div className="absolute top-2 -left-2 w-3 h-4 bg-[#F4A460] rounded-full opacity-80" />
+            <div className="absolute top-2 -right-2 w-3 h-4 bg-[#F4A460] rounded-full opacity-80" />
+          </>
+        )}
+
+        {/* Helmet for Warriors */}
+        {sprite.helmet && (
+          <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-5 h-3 bg-[#C0C0C0] rounded-t-sm" />
         )}
         
         {/* Head */}
-        <div 
-          className="absolute top-0 left-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-sm"
-          style={{ backgroundColor: colors.head }}
-        />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-4 h-4 rounded-sm" style={{ backgroundColor: sprite.head }} />
         
-        {/* Body */}
+        {/* Body - Toga for AI, Suit for Humans */}
         <div 
-          className="absolute top-3.5 left-1/2 -translate-x-1/2 w-4.5 h-6 rounded-sm"
-          style={{ backgroundColor: colors.body }}
-        />
+          className={`absolute top-4 left-1/2 -translate-x-1/2 ${agent.type === 'human' ? 'w-5 h-7' : 'w-4 h-6'} rounded-sm`}
+          style={{ backgroundColor: sprite.body }}
+        >
+          {agent.type === 'human' && (
+            <div className="absolute top-1 left-1/2 -translate-x-1/2 w-1.5 h-3 bg-[#4169E1] rounded-sm" />
+          )}
+        </div>
         
         {/* Arms */}
-        <div 
-          className={`absolute top-4 w-2 h-3.5 rounded-sm ${isWalking ? 'animate-bounce' : ''}`}
-          style={{ 
-            left: direction === 'right' ? '-3px' : 'auto',
-            right: direction === 'left' ? '-3px' : 'auto',
-            backgroundColor: colors.accent,
-            animationDelay: '0s',
-          }}
-        />
-        <div 
-          className={`absolute top-4 w-2 h-3.5 rounded-sm ${isWalking ? 'animate-bounce' : ''}`}
-          style={{ 
-            right: direction === 'right' ? '-3px' : 'auto',
-            left: direction === 'left' ? '-3px' : 'auto',
-            backgroundColor: colors.accent,
-            animationDelay: '0.15s',
-          }}
-        />
+        <div className={`absolute top-5 w-2 h-4 rounded-sm ${isWalking ? 'animate-bounce' : ''}`}
+          style={{ left: direction === 'right' ? '-3px' : 'auto', right: direction === 'left' ? '-3px' : 'auto', backgroundColor: sprite.detail }} />
+        <div className={`absolute top-5 w-2 h-4 rounded-sm ${isWalking ? 'animate-bounce' : ''}`}
+          style={{ right: direction === 'right' ? '-3px' : 'auto', left: direction === 'left' ? '-3px' : 'auto', backgroundColor: sprite.detail, animationDelay: '0.15s' }} />
         
         {/* Legs */}
-        <div 
-          className={`absolute top-9 w-2 h-3.5 rounded-sm ${isWalking ? 'animate-pulse' : ''}`}
-          style={{ 
-            left: '3px',
-            backgroundColor: colors.body,
-          }}
-        />
-        <div 
-          className={`absolute top-9 w-2 h-3.5 rounded-sm ${isWalking ? 'animate-pulse' : ''}`}
-          style={{ 
-            right: '3px',
-            backgroundColor: colors.body,
-            animationDelay: '0.1s',
-          }}
-        />
-        
-        {/* Type indicator */}
-        {agent.type === 'ai' && (
-          <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#00d9ff] rounded-full animate-pulse" />
-        )}
-        {agent.type === 'human' && (
-          <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#ff6b9d] rounded-full" />
+        <div className={`absolute top-10 w-2 h-4 rounded-sm ${isWalking ? 'animate-pulse' : ''}`}
+          style={{ left: '4px', backgroundColor: sprite.body }} />
+        <div className={`absolute top-10 w-2 h-4 rounded-sm ${isWalking ? 'animate-pulse' : ''}`}
+          style={{ right: '4px', backgroundColor: sprite.body, animationDelay: '0.1s' }} />
+
+        {/* Staff for ARGOS and Claude */}
+        {sprite.staff && (
+          <div className="absolute top-6 -right-3 w-0.5 h-8 rounded-full" style={{ backgroundColor: sprite.detail }} />
         )}
       </div>
       
-      {/* Name label (only show when not at desk) */}
+      {/* Moving label */}
       {agent.targetPosition && (
-        <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap">
-          <span className="text-[8px] text-[#eaeaea] font-mono bg-[#0f0f1a]/80 px-1.5 py-0.5 rounded">
+        <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap">
+          <span className="text-[9px] text-[#eaeaea] font-mono bg-[#0a0a0f]/90 px-2 py-0.5 rounded-full border"
+            style={{ borderColor: theme.primary + '40' }}>
             {agent.name}
           </span>
         </div>
