@@ -64,17 +64,10 @@ serve(async (req: Request) => {
       .map(a => a.participant_name);
 
     if (mentioned.length > 0) {
-      return await handleFullResponse(room_id, messageText, mentioned, preferVoiceReply);
+      return await handleFullResponse(room_id, messageText, mentioned);
     }
 
-    // Step 4: Voice messages with preferVoiceReply = true → auto-respond with all agents
-    if (content_type === "voice" && preferVoiceReply) {
-      console.log("[route-message] Voice message with preferVoiceReply=true, auto-responding with all agents");
-      const allAgentNames = agentParticipants.map(a => a.participant_name);
-      return await handleFullResponse(room_id, messageText, allAgentNames, true);
-    }
-
-    // Step 5: Hand-raise mode — ask all agents if they want to speak
+    // Step 4: Hand-raise mode — ask all agents if they want to speak
     // First, reset all hands from previous message
     await supabase
       .from("war_room_participants")
@@ -137,16 +130,38 @@ serve(async (req: Request) => {
 // ============================================================
 
 function extractExecutionPayload(agentResponse: string): Record<string, unknown> | null {
-  const executionBlockRegex = /```execution\s*\n([\s\S]*?)\n```/;
+  // Look for ```execution ... ``` blocks in agent response
+  const executionBlockRegex = /```execution\s*
+([\s\S]*?)
+```/;
   const match = agentResponse.match(executionBlockRegex);
+
   if (!match) return null;
+
   try {
     const parsed = JSON.parse(match[1]);
+
+    // Validate basic structure — need at least files + branch + commit_message
     if (parsed.files && Array.isArray(parsed.files) && parsed.branch && parsed.commit_message) {
-      return { type: "code_commit", payload: { files: parsed.files, branch: parsed.branch, commit_message: parsed.commit_message, base_branch: parsed.base_branch || "main" } };
+      return {
+        type: "code_commit",
+        payload: {
+          files: parsed.files,
+          branch: parsed.branch,
+          commit_message: parsed.commit_message,
+          base_branch: parsed.base_branch || "main",
+        },
+      };
     }
-    if (parsed.type && parsed.payload) return parsed;
-  } catch (e) { console.error("Failed to parse execution block:", e); }
+
+    // Also support pre-wrapped format: { type: "...", payload: { ... } }
+    if (parsed.type && parsed.payload) {
+      return parsed;
+    }
+  } catch (e) {
+    console.error("Failed to parse execution block:", e);
+  }
+
   return null;
 }
 
@@ -154,37 +169,23 @@ function extractExecutionPayload(agentResponse: string): Record<string, unknown>
 // HANDLER: Full Response (used for hand-raise click + @mentions)
 // ============================================================
 
-async function handleFullResponse(roomId: string, messageText: string, targetAgents: string[], preferVoiceReply: boolean = false) {
+async function handleFullResponse(roomId: string, messageText: string, targetAgents: string[]) {
   if (targetAgents.length === 0) {
     return json({ status: "no_targets" });
   }
 
   // If no content provided, fetch the latest human message from the room
   let effectiveMessage = messageText;
-  let preferVoiceReply = false;
-  
   if (!effectiveMessage) {
     const { data: latestMsg } = await supabase
       .from("war_room_messages")
-      .select("content, metadata")
+      .select("content")
       .eq("room_id", roomId)
       .eq("sender_type", "human")
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
     effectiveMessage = latestMsg?.content || "Please respond.";
-    preferVoiceReply = latestMsg?.metadata?.prefer_voice_reply ?? false;
-  } else {
-    // When triggered by @mention, get the triggering message's metadata
-    const { data: latestMsg } = await supabase
-      .from("war_room_messages")
-      .select("metadata")
-      .eq("room_id", roomId)
-      .eq("sender_type", "human")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-    preferVoiceReply = latestMsg?.metadata?.prefer_voice_reply ?? false;
   }
 
   const { data: participants } = await supabase
@@ -203,14 +204,18 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
     agentMap.set(rec.name, rec);
   }
 
-  const context = await buildContext(roomId, 20);
+  // Sequential execution: each agent sees previous agents' responses
+  const responded: string[] = [];
 
-  const responsePromises = targetAgents.map(async (agentName) => {
+  for (const agentName of targetAgents) {
     const participant = participants?.find(a => a.participant_name === agentName);
     const agentRecord = agentMap.get(agentName);
 
-    if (!participant) return;
-    if (participant.participant_type === "human") return;
+    if (!participant) continue;
+    if (participant.participant_type === "human") continue;
+
+    // Rebuild context EACH time so this agent sees what previous agents said
+    const context = await buildContext(roomId, 20);
 
     const startTime = Date.now();
 
@@ -218,6 +223,8 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
       const response = await callAgentFromRecord(agentRecord, participant, effectiveMessage, context, agentName);
       const responseTime = Date.now() - startTime;
       const modelUsed = agentRecord?.api_model || agentRecord?.model_primary || "unknown";
+
+      // Extract execution payload from agent response
       const executionPayload = extractExecutionPayload(response.text);
 
       const { data: insertedMsg } = await supabase
@@ -239,8 +246,8 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
         .select()
         .single();
 
-      // Voice TTS if user requested voice reply AND agent has voice_id
-      if (preferVoiceReply && agentRecord?.voice_id && insertedMsg) {
+      // Voice TTS if agent has a voice_id configured
+      if (agentRecord?.voice_id && insertedMsg) {
         try {
           await generateVoice(response.text, agentRecord.voice_id, insertedMsg.id);
         } catch (ttsErr) {
@@ -254,6 +261,8 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
         .update({ hand_raised: false, hand_reason: null })
         .eq("id", participant.id);
 
+      responded.push(agentName);
+
     } catch (err) {
       console.error(`Agent ${agentName} failed:`, err);
       await supabase.from("war_room_messages").insert({
@@ -264,10 +273,9 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
         metadata: { error: true },
       });
     }
-  });
+  }
 
-  await Promise.all(responsePromises);
-  return json({ status: "ok", responded: targetAgents });
+  return json({ status: "ok", responded });
 }
 
 // ============================================================
@@ -459,7 +467,9 @@ async function callAgentFromRecord(
   const systemPrompt = agentRecord.system_prompt ||
     `You are ${agentName}, a ${agentRecord.role} in the OLYMPUS multi-agent system. Keep responses concise and helpful.`;
 
-  const fullPrompt = `${systemPrompt}\n\n${context}`;
+  const fullPrompt = `${systemPrompt}
+
+${context}`;
   const endpoint = agentRecord.api_endpoint;
 
   if (endpoint.includes("anthropic.com")) {
@@ -490,9 +500,9 @@ async function callAnthropic(systemPrompt: string, message: string, model: strin
     },
     body: JSON.stringify({
       model,
-      max_tokens: 4096,
+      max_tokens: 1024,
       system: systemPrompt,
-      messages: [{ role: "user", content: message + "\n\nREMINDER: Wrap ALL code output in ```execution blocks with JSON structure (files, branch, commit_message). Do NOT use ```typescript or ```javascript." }],
+      messages: [{ role: "user", content: message }],
     }),
   });
 
@@ -523,7 +533,7 @@ async function callKimi(systemPrompt: string, message: string, model: string): P
         { role: "system", content: systemPrompt },
         { role: "user", content: message },
       ],
-      max_tokens: 4096,
+      max_tokens: 1024,
     }),
   });
 
@@ -544,10 +554,9 @@ async function callOllama(systemPrompt: string, message: string, model: string):
       model: model || "qwen2.5-coder:32b",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: message + "\n\nREMINDER: Wrap ALL code output in ```execution blocks with JSON structure (files, branch, commit_message). Do NOT use ```typescript or ```javascript." },
+        { role: "user", content: message },
       ],
       stream: false,
-      options: { num_predict: 4096 },
     }),
     signal: AbortSignal.timeout(60000),
   });
@@ -569,9 +578,9 @@ async function callOpenAICompatible(endpoint: string, systemPrompt: string, mess
       model,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: message + "\n\nREMINDER: Wrap ALL code output in ```execution blocks with JSON structure (files, branch, commit_message). Do NOT use ```typescript or ```javascript." },
+        { role: "user", content: message },
       ],
-      max_tokens: 4096,
+      max_tokens: 1024,
     }),
   });
 
@@ -629,9 +638,14 @@ ${participantList}
 RECENT CONVERSATION:
 ${messageHistory}
 
-Respond naturally. Be concise. Don't repeat what others said. Add your unique perspective.
-If you have nothing meaningful to add, say so briefly.
-Match the language of the conversation (German or English).`;
+IMPORTANT RULES:
+- Read the ENTIRE conversation above carefully, including other agents' responses.
+- If another agent already answered, reference their points: agree, disagree, or build on them.
+- Do NOT repeat what others already said. Add your unique perspective.
+- If you agree with a previous agent, say so briefly and add what they missed.
+- If you disagree, explain why with specific reasoning.
+- Be concise. No filler.
+- Match the language of the conversation (German or English).`;
 }
 
 // ============================================================
