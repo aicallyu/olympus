@@ -247,6 +247,121 @@ export function PixelOffice() {
             );
           })}
 
+          {/* Common Areas with Furniture */}
+          {/* Kitchen - Ambrosia Hall */}
+          <div className="absolute rounded-xl border-2 border-[#DAA520]/50 bg-[#1a1510]/90 overflow-hidden"
+            style={{ left: 820, top: 60, width: 180, height: 140 }}
+            onMouseEnter={() => setHovered('kitchen')}
+            onMouseLeave={() => setHovered(null)}>
+            <div className="absolute -top-3 left-4 px-2 py-0.5 bg-[#0d0d14] border border-[#DAA520] rounded text-[10px] font-bold text-[#DAA520]">
+              Ambrosia Hall
+            </div>
+            {/* Kitchen Island */}
+            <div className="absolute top-8 left-4 w-24 h-10 bg-[#5C4033] rounded border border-[#8B4513]">
+              <div className="absolute top-1 left-1 right-1 h-1 bg-[#2F1B0C]" />
+              {/* Stove */}
+              <div className="absolute top-3 left-2 w-6 h-4 bg-[#1a1a1a] rounded border border-[#444]">
+                <div className="absolute top-0.5 left-0.5 w-1.5 h-1.5 bg-[#e94560]/60 rounded-full" />
+                <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-[#e94560]/60 rounded-full" />
+              </div>
+            </div>
+            {/* Fridge */}
+            <div className="absolute top-8 right-4 w-12 h-20 bg-[#C0C0C0] rounded border border-[#808080]">
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 w-8 h-1 bg-[#808080]" />
+              <div className="absolute top-8 left-1 w-1 h-8 bg-[#808080]" />
+            </div>
+            {/* Coffee Machine */}
+            <div className="absolute bottom-4 left-8 w-8 h-10 bg-[#2F1B0C] rounded border border-[#5C4033]">
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-[#1a1a1a] rounded-full" />
+            </div>
+            {/* Table */}
+            <div className="absolute bottom-8 right-8 w-16 h-8 bg-[#5C4033] rounded-full border border-[#8B4513]">
+              <div className="absolute -top-3 left-2 w-2 h-6 bg-[#5C4033]" />
+              <div className="absolute -top-3 right-2 w-2 h-6 bg-[#5C4033]" />
+            </div>
+          </div>
+
+          {/* Gym - Arena */}
+          <div className="absolute rounded-xl border-2 border-[#e94560]/50 bg-[#1a1010]/90 overflow-hidden"
+            style={{ left: 820, top: 220, width: 180, height: 140 }}
+            onMouseEnter={() => setHovered('gym')}
+            onMouseLeave={() => setHovered(null)}>
+            <div className="absolute -top-3 left-4 px-2 py-0.5 bg-[#0d0d14] border border-[#e94560] rounded text-[10px] font-bold text-[#e94560]">
+              Arena
+            </div>
+            {/* Punching Bag */}
+            <div className="absolute top-12 left-8 w-8 h-16 bg-[#8B4513] rounded-full border border-[#5C4033]">
+              <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-0.5 h-4 bg-[#666]" />
+            </div>
+            {/* Bench Press */}
+            <div className="absolute top-20 right-4 w-20 h-8">
+              <div className="absolute top-3 left-0 right-0 h-2 bg-[#C0C0C0] rounded" />
+              <div className="absolute top-0 left-2 w-3 h-6 bg-[#666]" />
+              <div className="absolute top-0 right-2 w-3 h-6 bg-[#666]" />
+              <div className="absolute top-1 left-0 w-4 h-4 bg-[#333] rounded-full" />
+              <div className="absolute top-1 right-0 w-4 h-4 bg-[#333] rounded-full" />
+            </div>
+            {/* Dumbbell Rack */}
+            <div className="absolute bottom-4 left-4 w-12 h-8 bg-[#2F1B0C] rounded border border-[#5C4033]">
+              <div className="absolute top-1 left-1 w-3 h-2 bg-[#666] rounded-full" />
+              <div className="absolute top-4 left-2 w-4 h-2 bg-[#666] rounded-full" />
+            </div>
+            {/* Treadmill */}
+            <div className="absolute bottom-8 right-8 w-16 h-6 bg-[#1a1a1a] rounded border border-[#444]">
+              <div className="absolute top-1 left-1 w-12 h-3 bg-[#333] rounded" />
+            </div>
+          </div>
+
+          {/* Lounge - Gardens */}
+          <div className="absolute rounded-xl border-2 border-[#4ecdc4]/50 bg-[#101a18]/90 overflow-hidden"
+            style={{ left: 820, top: 380, width: 180, height: 140 }}
+            onMouseEnter={() => setHovered('lounge')}
+            onMouseLeave={() => setHovered(null)}>
+            <div className="absolute -top-3 left-4 px-2 py-0.5 bg-[#0d0d14] border border-[#4ecdc4] rounded text-[10px] font-bold text-[#4ecdc4]">
+              Gardens
+            </div>
+            {/* Comfy Couch */}
+            <div className="absolute top-8 left-4 w-20 h-10 bg-[#2d4a3e] rounded-lg border border-[#4a7c59]">
+              <div className="absolute -top-2 left-0 right-0 h-4 bg-[#3d5a4e] rounded-t-lg" />
+            </div>
+            {/* Coffee Table */}
+            <div className="absolute top-20 left-8 w-12 h-6 bg-[#5C4033] rounded border border-[#8B4513]">
+              <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-8 h-1 bg-[#DAA520]" />
+            </div>
+            {/* Plant */}
+            <div className="absolute bottom-4 right-8 w-8 h-12">
+              <div className="absolute bottom-0 w-6 h-4 bg-[#8B4513] rounded mx-auto left-0 right-0" />
+              <div className="absolute bottom-3 left-1 w-3 h-6 bg-[#32CD32] rounded-full" />
+              <div className="absolute bottom-3 right-1 w-3 h-6 bg-[#32CD32] rounded-full" />
+              <div className="absolute bottom-5 left-2 w-4 h-5 bg-[#228B22] rounded-full" />
+            </div>
+            {/* Armchair */}
+            <div className="absolute top-12 right-4 w-12 h-12 bg-[#3d5a4e] rounded-lg border border-[#4a7c59]">
+              <div className="absolute -top-1 left-0 right-0 h-3 bg-[#4a7c59] rounded-t-lg" />
+            </div>
+          </div>
+
+          {/* War Room */}
+          <div className="absolute rounded-xl border-2 border-[#ffd700]/50 bg-[#1a1a10]/90 overflow-hidden"
+            style={{ left: 820, top: 540, width: 180, height: 120 }}
+            onMouseEnter={() => setHovered('warRoom')}
+            onMouseLeave={() => setHovered(null)}>
+            <div className="absolute -top-3 left-4 px-2 py-0.5 bg-[#0d0d14] border border-[#ffd700] rounded text-[10px] font-bold text-[#ffd700]">
+              War Room
+            </div>
+            {/* Conference Table */}
+            <div className="absolute top-8 left-1/2 -translate-x-1/2 w-28 h-16 bg-[#5C4033] rounded-lg border-2 border-[#8B4513]">
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-12 bg-[#3d2817] rounded" />
+            </div>
+            {/* Seats around table */}
+            <div className="absolute top-6 left-4 w-6 h-6 bg-[#4a4a4a] rounded" />
+            <div className="absolute top-6 right-4 w-6 h-6 bg-[#4a4a4a] rounded" />
+            <div className="absolute bottom-6 left-4 w-6 h-6 bg-[#4a4a4a] rounded" />
+            <div className="absolute bottom-6 right-4 w-6 h-6 bg-[#4a4a4a] rounded" />
+            {/* Map/Screen on wall */}
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 w-20 h-2 bg-[#00d9ff]/30 rounded" />
+          </div>
+
           {/* Agents */}
           {agents.map(agent => (
             <OfficeAgent
