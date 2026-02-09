@@ -29,7 +29,7 @@ export function WarRoom({ roomId }: Props) {
   const handleVoiceToggle = async () => {
     if (isRecording) {
       const blob = await stopRecording();
-      await sendVoiceMessage(blob);
+      await sendVoiceMessage(blob, voiceReplyEnabled);
     } else {
       await startRecording();
     }

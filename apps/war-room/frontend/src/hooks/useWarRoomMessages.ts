@@ -80,7 +80,7 @@ export function useWarRoomMessages(roomId: string) {
 
   // Send a voice message
   const sendVoiceMessage = useCallback(
-    async (audioBlob: Blob) => {
+    async (audioBlob: Blob, preferVoiceReply: boolean = false) => {
       const fileName = `voice/${Date.now()}.webm`;
       const { error: uploadError } = await supabase.storage
         .from('war-room-audio')
@@ -102,7 +102,9 @@ export function useWarRoomMessages(roomId: string) {
         content: '🎤 Voice message (transcribing...)',
         content_type: 'voice',
         audio_url: urlData.publicUrl,
-        metadata: {},
+        metadata: {
+          prefer_voice_reply: preferVoiceReply,
+        },
       });
       if (error) console.error('Failed to send voice:', error);
     },
