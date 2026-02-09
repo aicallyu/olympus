@@ -1,266 +1,309 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { OfficeAgent } from './OfficeAgent';
-import { Coffee, Users, Dumbbell, Monitor, Zap, Brain, Code, Shield, Flame, BookOpen, MessageSquare, Terminal, Building2, Clock, CheckCircle } from 'lucide-react';
+import { 
+  Coffee, Users, Dumbbell, Monitor, Zap, Brain, Code, Shield, 
+  Flame, BookOpen, MessageSquare, Terminal, Building2, Clock, CheckCircle 
+} from 'lucide-react';
 
 interface Task {
   id: string;
   title: string;
-  status: 'inbox' | 'assigned' | 'in_progress' | 'review' | 'completed';
-  assignee_id: string | null;
-  created_at: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  progress: number;
+  started_at: string | null;
   completed_at: string | null;
-  updated_at: string;
+  estimated_duration: number | null;
 }
 
-interface AgentState {
+interface Agent {
   id: string;
   name: string;
   role: string;
   status: 'idle' | 'working' | 'offline';
+  current_task_id: string | null;
   type: 'ai' | 'human';
   position: { x: number; y: number };
   targetPosition: { x: number; y: number } | null;
   currentTask: Task | null;
   lastTask: Task | null;
-  taskStartedAt: string | null;
-  lastBreakAt: string | null;
-  inMeeting: boolean;
+  lastTaskCompletedAt: string | null;
   activity: string;
-  breakType: 'coffee' | 'gym' | 'chill' | null;
+  state: 'working' | 'break' | 'training' | 'meeting' | 'idle';
+  timeInState: number;
 }
 
-// Department definitions
 const DEPARTMENTS: Record<string, { icon: any; color: string; bgColor: string; desc: string }> = {
-  'Command': { icon: Zap, color: '#ffd700', bgColor: 'rgba(255, 215, 0, 0.15)', desc: 'Orchestration & Strategy' },
-  'Engineering': { icon: Code, color: '#00d9ff', bgColor: 'rgba(0, 217, 255, 0.15)', desc: 'Frontend & Backend' },
-  'AI Lab': { icon: Brain, color: '#ff6bff', bgColor: 'rgba(255, 107, 255, 0.15)', desc: 'Architecture & AI' },
-  'Creative': { icon: Flame, color: '#ff6b9d', bgColor: 'rgba(255, 107, 157, 0.15)', desc: 'Design & Visual Arts' },
-  'Operations': { icon: Shield, color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.15)', desc: 'DevOps & QA' },
-  'Knowledge': { icon: BookOpen, color: '#b8965a', bgColor: 'rgba(184, 150, 90, 0.15)', desc: 'Docs & Communication' },
+  'Command': { icon: Zap, color: '#ffd700', bgColor: 'rgba(255, 215, 0, 0.1)', desc: 'Orchestration & Strategy' },
+  'Engineering': { icon: Code, color: '#00d9ff', bgColor: 'rgba(0, 217, 255, 0.1)', desc: 'Frontend & Backend' },
+  'AI Lab': { icon: Brain, color: '#ff6bff', bgColor: 'rgba(255, 107, 255, 0.1)', desc: 'Architecture & AI' },
+  'Creative': { icon: Flame, color: '#ff6b9d', bgColor: 'rgba(255, 107, 157, 0.1)', desc: 'Design & Visual Arts' },
+  'Operations': { icon: Shield, color: '#22c55e', bgColor: 'rgba(34, 197, 94, 0.1)', desc: 'DevOps & QA' },
+  'Knowledge': { icon: BookOpen, color: '#b8965a', bgColor: 'rgba(184, 150, 90, 0.1)', desc: 'Docs & Communication' },
 };
 
-// Properly spaced desk positions (no overlapping)
 const DESKS = [
-  { x: 120, y: 200, agent: 'ARGOS', dept: 'Command', zone: 'Command Center', label: 'Hub' },
-  { x: 280, y: 200, agent: 'ATLAS', dept: 'Engineering', zone: 'Frontend Squad', label: 'FE Lead' },
-  { x: 440, y: 200, agent: 'Claude', dept: 'AI Lab', zone: 'AI Research', label: 'Architect' },
-  { x: 120, y: 360, agent: 'ATHENA', dept: 'Operations', zone: 'Quality Assurance', label: 'QA Lead' },
-  { x: 280, y: 360, agent: 'HERCULOS', dept: 'Engineering', zone: 'Backend Squad', label: 'BE Lead' },
-  { x: 440, y: 360, agent: 'APOLLO', dept: 'Creative', zone: 'Design Studio', label: 'Creative Dir' },
-  { x: 120, y: 520, agent: 'PROMETHEUS', dept: 'Operations', zone: 'Infrastructure', label: 'DevOps' },
-  { x: 280, y: 520, agent: 'HERMES', dept: 'Knowledge', zone: 'Documentation', label: 'Tech Writer' },
-  { x: 680, y: 240, agent: 'Juan', dept: 'Command', zone: 'Executive Suite', label: 'System Arch' },
-  { x: 680, y: 400, agent: 'Nathanael', dept: 'Engineering', zone: 'Frontend Squad', label: 'Frontend Dev' },
+  { x: 150, y: 220, agent: 'ARGOS', dept: 'Command', zone: 'Command Center', label: 'Hub' },
+  { x: 350, y: 220, agent: 'ATLAS', dept: 'Engineering', zone: 'Frontend Squad', label: 'FE Lead' },
+  { x: 550, y: 220, agent: 'Claude', dept: 'AI Lab', zone: 'AI Research', label: 'Architect' },
+  { x: 150, y: 380, agent: 'ATHENA', dept: 'Operations', zone: 'Quality Assurance', label: 'QA Lead' },
+  { x: 350, y: 380, agent: 'HERCULOS', dept: 'Engineering', zone: 'Backend Squad', label: 'BE Lead' },
+  { x: 550, y: 380, agent: 'APOLLO', dept: 'Creative', zone: 'Design Studio', label: 'Creative Dir' },
+  { x: 150, y: 540, agent: 'PROMETHEUS', dept: 'Operations', zone: 'Infrastructure', label: 'DevOps' },
+  { x: 350, y: 540, agent: 'HERMES', dept: 'Knowledge', zone: 'Documentation', label: 'Tech Writer' },
+  { x: 850, y: 300, agent: 'Juan', dept: 'Command', zone: 'Executive Suite', label: 'System Arch' },
+  { x: 850, y: 450, agent: 'Nathanael', dept: 'Engineering', zone: 'Frontend Squad', label: 'Frontend Dev' },
 ];
 
-// Room definitions with proper boundaries and occupancy tracking
-interface Room {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  label: string;
-  icon: any;
-  color: string;
-  purpose: string;
-  maxOccupancy: number;
-}
+const ROOMS = {
+  conference: { 
+    x: 1050, y: 320, width: 200, height: 140, 
+    label: 'War Room', icon: Terminal,
+    entryPoints: [{ x: 1020, y: 390 }],
+    capacity: 8
+  },
+  kitchen: { 
+    x: 80, y: 80, width: 180, height: 120, 
+    label: 'The Kitchen', icon: Coffee,
+    entryPoints: [{ x: 200, y: 170 }],
+    capacity: 4
+  },
+  gym: { 
+    x: 900, y: 80, width: 160, height: 120, 
+    label: 'Power Gym', icon: Dumbbell,
+    entryPoints: [{ x: 980, y: 170 }],
+    capacity: 3
+  },
+  lounge: { 
+    x: 450, y: 60, width: 220, height: 120, 
+    label: 'Chill Zone', icon: MessageSquare,
+    entryPoints: [{ x: 560, y: 150 }],
+    capacity: 6
+  },
+};
 
-const ROOMS: Room[] = [
-  { id: 'war-room', x: 850, y: 280, width: 200, height: 140, label: 'War Room', icon: Terminal, color: '#ffd700', purpose: 'Strategy & Multi-Agent Discussions', maxOccupancy: 6 },
-  { id: 'kitchen', x: 60, y: 60, width: 180, height: 110, label: 'The Kitchen', icon: Coffee, color: '#ff6b6b', purpose: 'Coffee Breaks & Casual Chat', maxOccupancy: 4 },
-  { id: 'gym', x: 820, y: 60, width: 160, height: 110, label: 'Power Gym', icon: Dumbbell, color: '#e94560', purpose: 'Training & Learning', maxOccupancy: 3 },
-  { id: 'lounge', x: 400, y: 50, width: 220, height: 110, label: 'Chill Zone', icon: MessageSquare, color: '#4ecdc4', purpose: 'Cooldown & Relaxation', maxOccupancy: 5 },
-];
-
-// Get safe position within room boundaries
-function getSafeRoomPosition(room: Room, existingAgents: AgentState[], currentAgentId: string): { x: number; y: number } {
+// Get a position inside a room that's not occupied
+function getPositionInRoom(room: typeof ROOMS[keyof typeof ROOMS], occupiedPositions: {x:number,y:number}[]): {x:number,y:number} {
   const padding = 30;
-  const attempts = 10;
+  let attempts = 0;
+  let pos;
   
-  for (let i = 0; i < attempts; i++) {
-    const x = room.x + padding + Math.random() * (room.width - 2 * padding);
-    const y = room.y + padding + Math.random() * (room.height - 2 * padding);
-    
-    // Check if too close to other agents
-    const tooClose = existingAgents.some(agent => 
-      agent.id !== currentAgentId &&
-      agent.targetPosition &&
-      Math.abs(agent.targetPosition.x - x) < 25 &&
-      Math.abs(agent.targetPosition.y - y) < 25
-    );
-    
-    if (!tooClose) return { x, y };
-  }
+  do {
+    pos = {
+      x: room.x + padding + Math.random() * (room.width - padding * 2),
+      y: room.y + padding + Math.random() * (room.height - padding * 2)
+    };
+    attempts++;
+  } while (attempts < 10 && occupiedPositions.some(p => 
+    Math.abs(p.x - pos.x) < 20 && Math.abs(p.y - pos.y) < 20
+  ));
   
-  // Fallback: return center
-  return { 
-    x: room.x + room.width / 2, 
-    y: room.y + room.height / 2 
-  };
+  return pos;
 }
 
 export function PixelOffice() {
-  const [agents, setAgents] = useState<AgentState[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState<AgentState | null>(null);
-  const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
+  const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
   const animationRef = useRef<number>();
+  const lastUpdateRef = useRef<number>(Date.now());
 
-  // Fetch agents and tasks
+  // Fetch agents with their tasks
   useEffect(() => {
     const fetchData = async () => {
-      const [{ data: agentsData }, { data: tasksData }] = await Promise.all([
-        supabase.from('agents').select('id, name, role, status, type, current_task_id').order('name'),
-        supabase.from('tasks').select('*').order('updated_at', { ascending: false }),
-      ]);
+      // Fetch agents
+      const { data: agentsData } = await supabase
+        .from('agents')
+        .select('id, name, role, status, current_task_id, type, last_completed_task_id, last_task_completed_at')
+        .order('name');
 
-      if (agentsData && tasksData) {
-        setTasks(tasksData);
+      if (!agentsData) return;
+
+      // Fetch current tasks
+      const currentTaskIds = agentsData.map(a => a.current_task_id).filter(Boolean);
+      const { data: currentTasks } = currentTaskIds.length > 0 
+        ? await supabase.from('tasks').select('*').in('id', currentTaskIds)
+        : { data: [] };
+
+      // Fetch last completed tasks
+      const lastTaskIds = agentsData.map(a => a.last_completed_task_id).filter(Boolean);
+      const { data: lastTasks } = lastTaskIds.length > 0
+        ? await supabase.from('tasks').select('*').in('id', lastTaskIds)
+        : { data: [] };
+
+      const currentTasksMap = new Map(currentTasks?.map(t => [t.id, t]) || []);
+      const lastTasksMap = new Map(lastTasks?.map(t => [t.id, t]) || []);
+
+      const agentsWithData: Agent[] = agentsData.map((agent: any) => {
+        const desk = DESKS.find(d => d.agent === agent.name);
+        const currentTask = agent.current_task_id ? currentTasksMap.get(agent.current_task_id) : null;
+        const lastTask = agent.last_completed_task_id ? lastTasksMap.get(agent.last_completed_task_id) : null;
         
-        const agentsWithState: AgentState[] = agentsData.map((agent: any) => {
-          const desk = DESKS.find(d => d.agent === agent.name);
-          const currentTask = tasksData.find((t: Task) => t.id === agent.current_task_id) || null;
-          const lastCompletedTask = tasksData.find((t: Task) => 
-            t.status === 'completed' && t.assignee_id === agent.id
-          ) || null;
-          
-          return {
-            id: agent.id,
-            name: agent.name,
-            role: agent.role,
-            status: agent.status,
-            type: agent.type,
-            position: desk ? { x: desk.x, y: desk.y } : { x: 400, y: 300 },
-            targetPosition: null,
-            currentTask,
-            lastTask: lastCompletedTask,
-            taskStartedAt: currentTask ? currentTask.created_at : null,
-            lastBreakAt: null,
-            inMeeting: false,
-            activity: currentTask ? `Working: ${currentTask.title}` : 'Idle',
-            breakType: null,
-          };
-        });
-        
-        setAgents(agentsWithState);
-      }
+        const isWorking = agent.status === 'working' && currentTask;
+        const justFinished = lastTask && agent.last_task_completed_at && 
+          (Date.now() - new Date(agent.last_task_completed_at).getTime()) < 5 * 60 * 1000;
+
+        let state: Agent['state'] = 'idle';
+        let activity = 'Idle';
+
+        if (isWorking) {
+          state = 'working';
+          activity = `Working: ${currentTask.title}`;
+        } else if (justFinished) {
+          state = 'break';
+          activity = `Cooldown after: ${lastTask.title}`;
+        }
+
+        return {
+          ...agent,
+          position: desk ? { x: desk.x, y: desk.y } : { x: 400, y: 300 },
+          targetPosition: null,
+          currentTask,
+          lastTask,
+          lastTaskCompletedAt: agent.last_task_completed_at,
+          activity,
+          state,
+          timeInState: 0,
+        };
+      });
+
+      setAgents(agentsWithData);
     };
 
     fetchData();
 
-    // Subscribe to agent changes
-    const agentSub = supabase
-      .channel('agent-status')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'agents' },
-        (payload: { new: any }) => {
-          setAgents(prev => prev.map(agent => {
-            if (agent.id === payload.new.id) {
-              const updated = { ...agent, status: payload.new.status };
-              
-              // Status changed to working - go to desk
-              if (payload.new.status === 'working') {
-                const desk = DESKS.find(d => d.agent === agent.name);
-                if (desk) {
-                  updated.targetPosition = { x: desk.x, y: desk.y };
-                  updated.activity = `Working${agent.currentTask ? `: ${agent.currentTask.title}` : ''}`;
-                  updated.breakType = null;
-                }
-              }
-              
-              // Status changed to idle - take a break
-              if (payload.new.status === 'idle' && agent.status === 'working') {
-                const breakType = Math.random() < 0.33 ? 'coffee' : Math.random() < 0.5 ? 'chill' : 'gym';
-                updated.breakType = breakType;
-                updated.lastBreakAt = new Date().toISOString();
-                
-                let targetRoom: Room | undefined;
-                if (breakType === 'coffee') targetRoom = ROOMS.find(r => r.id === 'kitchen');
-                else if (breakType === 'chill') targetRoom = ROOMS.find(r => r.id === 'lounge');
-                else if (breakType === 'gym') targetRoom = ROOMS.find(r => r.id === 'gym');
-                
-                if (targetRoom) {
-                  updated.targetPosition = getSafeRoomPosition(targetRoom, prev, agent.id);
-                  updated.activity = breakType === 'gym' ? 'Training session' : `Taking a break${agent.lastTask ? ` after: ${agent.lastTask.title}` : ''}`;
-                }
-              }
-              
-              return updated;
-            }
-            return agent;
-          }));
-        }
-      )
+    // Subscribe to changes
+    const subscription = supabase
+      .channel('agent-tasks-status')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'agents' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => fetchData())
       .subscribe();
 
-    // Subscribe to task changes
-    const taskSub = supabase
-      .channel('task-updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' },
-        () => {
-          // Refresh tasks
-          supabase.from('tasks').select('*').then(({ data }) => {
-            if (data) setTasks(data);
-          });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      agentSub.unsubscribe();
-      taskSub.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Smart movement animation
+  // Smart movement logic
   useEffect(() => {
     const animate = () => {
-      setAgents(prev => prev.map(agent => {
-        // If at target, clear it
-        if (agent.targetPosition) {
+      const now = Date.now();
+      const dt = (now - lastUpdateRef.current) / 1000;
+      lastUpdateRef.current = now;
+
+      setAgents(prev => {
+        const occupiedPositions = prev.map(a => a.position);
+        
+        return prev.map(agent => {
+          // Update time in state
+          const timeInState = agent.timeInState + dt;
+
+          // Movement logic based on state
+          if (!agent.targetPosition) {
+            // Agent is at destination - decide next move
+            
+            if (agent.state === 'working' && agent.currentTask) {
+              // Working agents stay at desk, no movement
+              return { ...agent, timeInState };
+            }
+
+            // Just finished task -> go to break
+            if (agent.lastTask && agent.lastTaskCompletedAt && 
+                (Date.now() - new Date(agent.lastTaskCompletedAt).getTime()) < 5 * 60 * 1000 &&
+                agent.state !== 'break' && timeInState > 2) {
+              const breakRoom = Math.random() > 0.5 ? ROOMS.kitchen : ROOMS.lounge;
+              const pos = getPositionInRoom(breakRoom, occupiedPositions);
+              return { 
+                ...agent, 
+                targetPosition: pos,
+                state: 'break',
+                activity: `Break after: ${agent.lastTask.title}`,
+                timeInState: 0
+              };
+            }
+
+            // Training mode -> go to gym
+            if (agent.state === 'training' && timeInState > 3) {
+              const pos = getPositionInRoom(ROOMS.gym, occupiedPositions);
+              return {
+                ...agent,
+                targetPosition: pos,
+                activity: 'Training: Learning new patterns',
+                timeInState: 0
+              };
+            }
+
+            // Multi-agent discussion -> War Room
+            const discussingAgents = prev.filter(a => 
+              a.state === 'meeting' && a.name !== agent.name
+            );
+            if (agent.state === 'meeting' && discussingAgents.length > 0 && timeInState > 2) {
+              const pos = getPositionInRoom(ROOMS.conference, occupiedPositions);
+              return {
+                ...agent,
+                targetPosition: pos,
+                activity: `Meeting with: ${discussingAgents.map(a => a.name).join(', ')}`,
+                timeInState: 0
+              };
+            }
+
+            // Idle agents return to desk after break
+            if (agent.state === 'break' && timeInState > 120) {
+              const desk = DESKS.find(d => d.agent === agent.name);
+              if (desk) {
+                return {
+                  ...agent,
+                  targetPosition: { x: desk.x, y: desk.y },
+                  state: 'idle',
+                  activity: 'Back at desk',
+                  timeInState: 0
+                };
+              }
+            }
+
+            // True idle - rare slow roaming
+            if (agent.status === 'idle' && !agent.currentTask && Math.random() < 0.0003) {
+              const zones = [ROOMS.lounge, ROOMS.kitchen];
+              const randomZone = zones[Math.floor(Math.random() * zones.length)];
+              const pos = getPositionInRoom(randomZone, occupiedPositions);
+              return {
+                ...agent,
+                targetPosition: pos,
+                state: 'idle',
+                activity: 'Taking a stroll',
+                timeInState: 0
+              };
+            }
+
+            return { ...agent, timeInState };
+          }
+
+          // Move towards target
           const dx = agent.targetPosition.x - agent.position.x;
           const dy = agent.targetPosition.y - agent.position.y;
           const distance = Math.sqrt(dx * dx + dy * dy);
 
-          if (distance < 2) {
-            return { ...agent, targetPosition: null, position: agent.targetPosition };
+          if (distance < 3) {
+            return { 
+              ...agent, 
+              targetPosition: null, 
+              position: agent.targetPosition,
+              timeInState: 0
+            };
           }
 
-          // Move towards target (slower for idle agents)
-          const speed = agent.status === 'working' ? 2.5 : 1.2;
+          // Working agents move faster (urgency), idle agents move slower
+          const speed = agent.state === 'working' ? 3 : 1.5;
+          
           return {
             ...agent,
             position: {
               x: agent.position.x + (dx / distance) * speed,
               y: agent.position.y + (dy / distance) * speed,
             },
+            timeInState
           };
-        }
-
-        // Idle agents: rare, purposeful movement only
-        if (agent.status === 'idle' && !agent.targetPosition && agent.breakType) {
-          // Return to desk after break duration (30 seconds)
-          if (agent.lastBreakAt) {
-            const breakDuration = Date.now() - new Date(agent.lastBreakAt).getTime();
-            if (breakDuration > 30000) {
-              const desk = DESKS.find(d => d.agent === agent.name);
-              if (desk) {
-                return {
-                  ...agent,
-                  targetPosition: { x: desk.x, y: desk.y },
-                  activity: 'Returning to desk',
-                  breakType: null,
-                };
-              }
-            }
-          }
-        }
-
-        return agent;
-      }));
+        });
+      });
 
       animationRef.current = requestAnimationFrame(animate);
     };
@@ -271,177 +314,125 @@ export function PixelOffice() {
     };
   }, []);
 
-  // Calculate room occupancy
-  const getRoomOccupants = (roomId: string) => {
-    const room = ROOMS.find(r => r.id === roomId);
-    if (!room) return [];
-    
-    return agents.filter(agent => {
-      if (!agent.targetPosition) {
-        // Check if agent is inside room bounds
-        return (
-          agent.position.x >= room.x &&
-          agent.position.x <= room.x + room.width &&
-          agent.position.y >= room.y &&
-          agent.position.y <= room.y + room.height
-        );
-      }
-      // Check if agent is heading to this room
-      return (
-        agent.targetPosition.x >= room.x &&
-        agent.targetPosition.x <= room.x + room.width &&
-        agent.targetPosition.y >= room.y &&
-        agent.targetPosition.y <= room.y + room.height
-      );
-    });
+  // Get agents in a room
+  const getAgentsInRoom = (roomKey: string) => {
+    const room = ROOMS[roomKey as keyof typeof ROOMS];
+    return agents.filter(agent => 
+      agent.position.x >= room.x && 
+      agent.position.x <= room.x + room.width &&
+      agent.position.y >= room.y &&
+      agent.position.y <= room.y + room.height
+    );
   };
 
-  // Format time duration
-  const formatDuration = (startTime: string | null) => {
-    if (!startTime) return '';
-    const diff = Date.now() - new Date(startTime).getTime();
-    const minutes = Math.floor(diff / 60000);
-    if (minutes < 1) return 'Just started';
-    if (minutes === 1) return '1 min';
-    return `${minutes} mins`;
+  // Format time ago
+  const timeAgo = (date: string | null) => {
+    if (!date) return '';
+    const minutes = Math.floor((Date.now() - new Date(date).getTime()) / 60000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    return `${Math.floor(minutes / 60)}h ago`;
   };
 
-  // Calculate task progress
-  const getTaskProgress = (agent: AgentState) => {
-    if (!agent.currentTask) return 0;
-    if (!agent.taskStartedAt) return 0;
-    
-    const elapsed = Date.now() - new Date(agent.taskStartedAt).getTime();
-    const estimatedDuration = 5 * 60 * 1000; // Estimate 5 minutes per task
-    return Math.min(95, Math.round((elapsed / estimatedDuration) * 100));
+  // Format duration
+  const formatDuration = (minutes: number) => {
+    if (minutes < 60) return `${minutes}m`;
+    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
   };
 
-  const workingCount = agents.filter(a => a.status === 'working').length;
-  const idleCount = agents.filter(a => a.status === 'idle').length;
+  const workingCount = agents.filter(a => a.state === 'working').length;
+  const inMeetingCount = agents.filter(a => a.state === 'meeting').length;
 
   return (
-    <div className="w-full h-full bg-gradient-to-br from-[#0a0a12] via-[#0f0f1a] to-[#141426] relative overflow-hidden">
+    <div className="w-full h-full bg-gradient-to-br from-[#0a0a12] via-[#12121e] to-[#0f1620] relative overflow-hidden">
       {/* Animated background */}
       <div className="absolute inset-0 opacity-20" style={{
         backgroundImage: `linear-gradient(rgba(0, 217, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 217, 255, 0.05) 1px, transparent 1px)`,
         backgroundSize: '60px 60px',
       }} />
 
-      {/* Header Stats */}
-      <div className="absolute top-4 left-4 right-4 z-20 flex justify-between items-center">
+      {/* Header */}
+      <div className="absolute top-4 left-4 right-4 z-30 flex justify-between">
         <div className="flex gap-3">
-          <div className="bg-[#0f0f1a]/95 backdrop-blur-xl border border-[#e94560]/40 rounded-2xl px-5 py-2.5 shadow-lg shadow-[#e94560]/20">
+          <div className="bg-[#0a0a12]/90 backdrop-blur border border-[#e94560]/30 rounded-xl px-4 py-2">
             <div className="flex items-center gap-2">
               <Monitor className="w-4 h-4 text-[#e94560]" />
               <span className="text-[#eaeaea] text-sm font-mono font-bold">{workingCount} Working</span>
             </div>
           </div>
-          <div className="bg-[#0f0f1a]/95 backdrop-blur-xl border border-[#ffd700]/40 rounded-2xl px-5 py-2.5 shadow-lg shadow-[#ffd700]/20">
-            <div className="flex items-center gap-2">
-              <Coffee className="w-4 h-4 text-[#ffd700]" />
-              <span className="text-[#eaeaea] text-sm font-mono font-bold">{idleCount} On Break</span>
-            </div>
-          </div>
-          <div className="bg-[#0f0f1a]/95 backdrop-blur-xl border border-[#00d9ff]/40 rounded-2xl px-5 py-2.5 shadow-lg shadow-[#00d9ff]/20">
+          <div className="bg-[#0a0a12]/90 backdrop-blur border border-[#00d9ff]/30 rounded-xl px-4 py-2">
             <div className="flex items-center gap-2">
               <Users className="w-4 h-4 text-[#00d9ff]" />
-              <span className="text-[#eaeaea] text-sm font-mono font-bold">{agents.length} Total</span>
+              <span className="text-[#eaeaea] text-sm font-mono font-bold">{inMeetingCount} In Meeting</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Department Labels */}
-      <div className="absolute left-6 top-24 flex flex-col gap-8">
-        <div className="flex items-center gap-2 opacity-60">
-          <Building2 className="w-4 h-4 text-[#ffd700]" />
-          <span className="text-[10px] font-mono text-[#ffd700] uppercase tracking-widest">Command Deck</span>
-        </div>
-        <div className="flex items-center gap-2 opacity-60">
-          <Code className="w-4 h-4 text-[#00d9ff]" />
-          <span className="text-[10px] font-mono text-[#00d9ff] uppercase tracking-widest">Engineering Wing</span>
-        </div>
-        <div className="flex items-center gap-2 opacity-60">
-          <Brain className="w-4 h-4 text-[#ff6bff]" />
-          <span className="text-[10px] font-mono text-[#ff6bff] uppercase tracking-widest">AI Research Lab</span>
-        </div>
-      </div>
-
-      {/* Main Canvas */}
-      <div className="relative w-full h-full pt-16">
-        {/* Rooms with hover tooltips */}
-        {ROOMS.map((room) => {
+      {/* Office Layout */}
+      <div className="relative w-full h-full pt-20">
+        
+        {/* Rooms with proper boundaries */}
+        {Object.entries(ROOMS).map(([key, room]) => {
           const Icon = room.icon;
-          const occupants = getRoomOccupants(room.id);
-          const isHovered = hoveredRoom === room.id;
+          const agentsInRoom = getAgentsInRoom(key);
+          const isHovered = hoveredRoom === key;
           
           return (
             <div
-              key={room.id}
-              className="absolute rounded-2xl border-2 transition-all duration-300 cursor-pointer"
+              key={key}
+              className="absolute rounded-2xl border-2 transition-all duration-300"
               style={{
-                left: room.x,
-                top: room.y,
-                width: room.width,
-                height: room.height,
-                borderColor: isHovered ? room.color : `${room.color}40`,
-                backgroundColor: isHovered ? `${room.color}20` : `${room.color}08`,
-                boxShadow: isHovered ? `0 0 30px ${room.color}30` : 'none',
+                left: room.x, top: room.y, width: room.width, height: room.height,
+                borderColor: isHovered ? '#00d9ff' : '#2a2a4a',
+                backgroundColor: isHovered ? 'rgba(0, 217, 255, 0.08)' : 'rgba(20, 20, 35, 0.9)',
+                boxShadow: isHovered ? '0 0 30px rgba(0, 217, 255, 0.2)' : 'none',
               }}
-              onMouseEnter={() => setHoveredRoom(room.id)}
+              onMouseEnter={() => setHoveredRoom(key)}
               onMouseLeave={() => setHoveredRoom(null)}
             >
-              {/* Room Header */}
-              <div className="absolute -top-7 left-4 flex items-center gap-2 bg-[#0f0f1a] px-3 py-1.5 rounded-full border"
-                style={{ borderColor: `${room.color}40` }}
-              >
-                <Icon className="w-4 h-4" style={{ color: room.color }} />
-                <span className="text-xs font-mono font-bold" style={{ color: room.color }}>{room.label}</span>
+              {/* Room label */}
+              <div className="absolute -top-8 left-2 flex items-center gap-2 bg-[#0a0a12] px-3 py-1 rounded-full border border-[#2a2a4a]">
+                <Icon className="w-4 h-4 text-[#7a7aaa]" />
+                <span className="text-xs text-[#eaeaea] font-mono">{room.label}</span>
+                <span className="text-[10px] text-[#7a7aaa] font-mono">({agentsInRoom.length}/{room.capacity})</span>
               </div>
 
-              {/* Occupancy Counter */}
-              {occupants.length > 0 && (
-                <div className="absolute top-2 right-2 bg-[#0f0f1a]/80 rounded-full px-2 py-0.5">
-                  <span className="text-[10px] font-mono text-[#eaeaea]">{occupants.length}/{room.maxOccupancy}</span>
-                </div>
-              )}
-
-              {/* Room Tooltip */}
-              {isHovered && (
-                <div className="absolute z-50 bg-[#0f0f1a]/98 backdrop-blur-xl border rounded-xl p-3 shadow-2xl"
+              {/* Room tooltip on hover */}
+              {isHovered && agentsInRoom.length > 0 && (
+                <div className="absolute z-40 bg-[#0a0a12]/95 backdrop-blur border border-[#00d9ff]/30 rounded-xl p-3 min-w-[250px]" 
                   style={{ 
-                    borderColor: `${room.color}40`,
-                    bottom: '100%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    marginBottom: '8px',
-                    minWidth: '220px',
+                    left: room.x > 500 ? -260 : room.width + 10, 
+                    top: 10 
                   }}
                 >
-                  <p className="text-xs font-mono font-bold mb-1" style={{ color: room.color }}>{room.label}</p>
-                  <p className="text-[10px] text-[#7a7aaa] font-mono mb-2">{room.purpose}</p>
-                  
-                  {occupants.length > 0 ? (
-                    <div className="space-y-1.5">
-                      <p className="text-[9px] text-[#7a7aaa] font-mono uppercase tracking-wider">Occupants:</p>
-                      {occupants.map((occupant) => (
-                        <div key={occupant.id} className="flex items-start gap-2 text-[10px]">
-                          <span className="text-[#eaeaea] font-mono font-bold">{occupant.name}</span>
-                          <span className="text-[#7a7aaa] font-mono">—</span>
-                          <span className="text-[#4a7c59] font-mono italic">{occupant.activity}</span>
-                        </div>
-                      ))}
+                  <p className="text-[10px] text-[#00d9ff] font-mono uppercase mb-2">Who's here:</p>
+                  {agentsInRoom.map(agent => (
+                    <div key={agent.name} className="mb-2 last:mb-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[#eaeaea] font-mono font-bold">{agent.name}</span>
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          agent.state === 'working' ? 'bg-[#e94560]' : 
+                          agent.state === 'break' ? 'bg-[#ffd700]' : 'bg-[#00d9ff]'
+                        }`} />
+                      </div>
+                      <p className="text-[10px] text-[#7a7aaa] font-mono truncate">
+                        {agent.activity}
+                      </p>
+                      {agent.lastTask && (
+                        <p className="text-[9px] text-[#4a7c59] font-mono">
+                          Last: {agent.lastTask.title} ({timeAgo(agent.lastTaskCompletedAt)})
+                        </p>
+                      )}
                     </div>
-                  ) : (
-                    <p className="text-[10px] text-[#7a7aaa] font-mono italic">Empty</p>
-                  )}
+                  ))}
                 </div>
               )}
             </div>
           );
         })}
 
-        {/* Desks with Agent Tooltips */}
+        {/* Desks */}
         {DESKS.map((desk) => {
           const dept = DEPARTMENTS[desk.dept];
           const Icon = dept.icon;
@@ -451,114 +442,85 @@ export function PixelOffice() {
           return (
             <div
               key={desk.agent}
-              className="absolute group"
-              style={{ left: desk.x - 50, top: desk.y - 35 }}
+              className="absolute"
+              style={{ left: desk.x - 60, top: desk.y - 50 }}
               onMouseEnter={() => setHoveredAgent(desk.agent)}
               onMouseLeave={() => setHoveredAgent(null)}
             >
-              {/* Desk */}
+              {/* Desk station */}
               <div 
-                className="w-28 h-24 rounded-xl border-2 transition-all duration-300 relative overflow-hidden"
+                className="w-28 h-24 rounded-xl border-2 transition-all duration-300 relative"
                 style={{
-                  borderColor: isHovered ? dept.color : `${dept.color}50`,
+                  borderColor: isHovered ? dept.color : '#2a2a4a',
                   backgroundColor: isHovered ? dept.bgColor : 'rgba(15, 15, 26, 0.95)',
-                  boxShadow: isHovered ? `0 0 25px ${dept.color}50` : 'none',
                 }}
               >
-                {/* Desk Header */}
-                <div className="h-6 flex items-center justify-center border-b"
-                  style={{ borderColor: `${dept.color}30`, backgroundColor: `${dept.color}15` }}
-                >
+                <div className="h-6 flex items-center justify-center border-b border-[#2a2a4a] bg-[#1a1a2e] rounded-t-xl">
                   <Icon className="w-3 h-3 mr-1" style={{ color: dept.color }} />
-                  <span className="text-[7px] text-[#eaeaea] font-mono uppercase tracking-wider truncate px-1">
-                    {desk.zone}
-                  </span>
+                  <span className="text-[7px] text-[#eaeaea] font-mono uppercase">{desk.zone}</span>
                 </div>
-
-                {/* Monitor */}
-                <div className="p-2 flex flex-col items-center justify-center h-[calc(100%-24px)]">
-                  <div className="w-14 h-9 rounded border-2 relative overflow-hidden mb-1"
-                    style={{ borderColor: dept.color }}
-                  >
-                    <div className="absolute inset-0 bg-[#0a0a0f]" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      {agent?.status === 'working' ? (
-                        <div className="w-10 h-1 bg-[#1a1a2e] rounded-full overflow-hidden">
-                          <div className="h-full bg-[#e94560] rounded-full animate-pulse"
-                            style={{ width: `${getTaskProgress(agent)}%` }}
-                          />
-                        </div>
-                      ) : (
-                        <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: dept.color }} />
-                      )}
+                <div className="flex flex-col items-center justify-center h-[calc(100%-24px)]">
+                  <div className="w-14 h-10 rounded border-2 mb-1 flex items-center justify-center" style={{ borderColor: dept.color }}>
+                    <div className="w-10 h-6 bg-[#0a0a12] rounded flex items-center justify-center">
+                      <div className="w-8 h-4 rounded animate-pulse" style={{ backgroundColor: dept.color, opacity: 0.3 }} />
                     </div>
                   </div>
-                  <span className="text-[8px] text-[#7a7aaa] font-mono">{desk.agent}</span>
+                  <span className="text-[9px] text-[#7a7aaa] font-mono">{desk.agent}</span>
                 </div>
-
-                {/* Role Badge */}
-                <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[6px] font-mono uppercase whitespace-nowrap"
-                  style={{ backgroundColor: dept.color, color: '#0f0f1a' }}
+                <div 
+                  className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[6px] font-mono uppercase whitespace-nowrap"
+                  style={{ backgroundColor: dept.color, color: '#0a0a12' }}
                 >
                   {desk.label}
                 </div>
               </div>
 
-              {/* Agent Tooltip */}
+              {/* Agent hover tooltip */}
               {isHovered && agent && (
-                <div className="absolute z-50 bg-[#0f0f1a]/98 backdrop-blur-xl border border-[#7a7aaa]/30 rounded-xl p-3 shadow-2xl"
+                <div className="absolute z-50 bg-[#0a0a12]/95 backdrop-blur border border-[#00d9ff]/30 rounded-xl p-3 min-w-[220px]" 
                   style={{ 
-                    bottom: '100%',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    marginBottom: '12px',
-                    minWidth: '240px',
+                    left: desk.x > 600 ? -240 : 130, 
+                    top: -20 
                   }}
                 >
-                  {/* Header */}
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${
-                      agent.status === 'working' ? 'bg-[#e94560] animate-pulse' :
-                      agent.status === 'idle' ? 'bg-[#ffd700]' : 'bg-[#666]'
-                    }`} />
-                    <span className="text-sm text-[#eaeaea] font-mono font-bold">{agent.name}</span>
-                    <span className="text-[10px] text-[#7a7aaa] font-mono">({agent.role})</span>
+                  <div className="flex justify-between items-start mb-2">
+                    <h4 className="text-[#eaeaea] font-bold font-mono">{agent.name}</h4>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase ${
+                      agent.state === 'working' ? 'bg-[#e94560]/20 text-[#e94560]' :
+                      agent.state === 'break' ? 'bg-[#ffd700]/20 text-[#ffd700]' :
+                      'bg-[#00d9ff]/20 text-[#00d9ff]'
+                    }`}>
+                      {agent.state}
+                    </span>
                   </div>
-
-                  {/* Current Task */}
+                  
                   {agent.currentTask ? (
-                    <div className="mb-3">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <Clock className="w-3 h-3 text-[#00d9ff]" />
-                        <span className="text-[10px] text-[#7a7aaa] font-mono uppercase">Current Task</span>
-                        <span className="text-[9px] text-[#4a7c59] font-mono">({formatDuration(agent.taskStartedAt)})</span>
-                      </div>
-                      <p className="text-xs text-[#eaeaea] font-mono mb-1.5">{agent.currentTask.title}</p>
-                      <div className="w-full h-1.5 bg-[#1a1a2e] rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-[#e94560] to-[#ff6b9d] rounded-full"
-                          style={{ width: `${getTaskProgress(agent)}%` }}
+                    <>
+                      <p className="text-[10px] text-[#7a7aaa] font-mono mb-1">Current Task:</p>
+                      <p className="text-xs text-[#eaeaea] font-mono font-bold mb-2 truncate">{agent.currentTask.title}</p>
+                      <div className="w-full h-2 bg-[#1a1a2e] rounded-full mb-1">
+                        <div 
+                          className="h-full bg-[#00d9ff] rounded-full transition-all"
+                          style={{ width: `${agent.currentTask.progress}%` }}
                         />
                       </div>
-                      <p className="text-[9px] text-[#7a7aaa] font-mono mt-1">{getTaskProgress(agent)}% complete</p>
-                    </div>
+                      <p className="text-[10px] text-[#00d9ff] font-mono">{agent.currentTask.progress}% complete</p>
+                      {agent.currentTask.started_at && (
+                        <p className="text-[9px] text-[#7a7aaa] font-mono mt-1">
+                          Started: {timeAgo(agent.currentTask.started_at)}
+                        </p>
+                      )}
+                    </>
                   ) : (
-                    <div className="mb-3">
-                      <div className="flex items-center gap-1.5">
-                        <Coffee className="w-3 h-3 text-[#ffd700]" />
-                        <span className="text-[10px] text-[#7a7aaa] font-mono uppercase">Status</span>
-                      </div>
-                      <p className="text-xs text-[#eaeaea] font-mono mt-1">{agent.activity}</p>
-                    </div>
+                    <p className="text-[10px] text-[#7a7aaa] font-mono italic">No active task</p>
                   )}
 
-                  {/* Last Completed Task */}
                   {agent.lastTask && (
-                    <div className="pt-2 border-t border-[#7a7aaa]/20">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <CheckCircle className="w-3 h-3 text-[#22c55e]" />
-                        <span className="text-[10px] text-[#7a7aaa] font-mono uppercase">Last Completed</span>
-                      </div>
-                      <p className="text-[10px] text-[#4a7c59] font-mono">{agent.lastTask.title}</p>
+                    <div className="mt-2 pt-2 border-t border-[#2a2a4a]">
+                      <p className="text-[9px] text-[#4a7c59] font-mono flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" />
+                        Last: {agent.lastTask.title} ({timeAgo(agent.lastTaskCompletedAt)})
+                      </p>
                     </div>
                   )}
                 </div>
@@ -577,24 +539,29 @@ export function PixelOffice() {
         ))}
       </div>
 
-      {/* Legend */}
-      <div className="absolute bottom-4 left-4 bg-[#0f0f1a]/95 backdrop-blur-xl border border-[#7a7aaa]/30 rounded-xl p-4 z-20">
-        <p className="text-[10px] text-[#7a7aaa] font-mono uppercase mb-3 tracking-wider">Agent Status</p>
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#e94560] animate-pulse shadow-lg shadow-[#e94560]/50" />
-            <span className="text-xs text-[#eaeaea] font-mono">Working at desk</span>
+      {/* Selected agent panel */}
+      {selectedAgent && (
+        <div className="absolute bottom-4 right-4 w-80 bg-[#0a0a12]/95 backdrop-blur border border-[#00d9ff]/30 rounded-2xl p-4 z-40">
+          <div className="flex justify-between items-start mb-3">
+            <div>
+              <h3 className="text-[#eaeaea] font-bold font-mono text-lg">{selectedAgent.name}</h3>
+              <p className="text-[#7a7aaa] text-xs font-mono">{selectedAgent.role}</p>
+            </div>
+            <button onClick={() => setSelectedAgent(null)} className="text-[#7a7aaa] hover:text-[#eaeaea]">×</button>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#ffd700] shadow-lg shadow-[#ffd700]/50" />
-            <span className="text-xs text-[#eaeaea] font-mono">On break</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#666]" />
-            <span className="text-xs text-[#eaeaea] font-mono">Offline</span>
+          
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${
+                selectedAgent.state === 'working' ? 'bg-[#e94560] animate-pulse' :
+                selectedAgent.state === 'break' ? 'bg-[#ffd700]' : 'bg-[#00d9ff]'
+              }`} />
+              <span className="text-[#eaeaea] text-sm font-mono capitalize">{selectedAgent.state}</span>
+            </div>
+            <p className="text-[#7a7aaa] text-xs font-mono">{selectedAgent.activity}</p>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
