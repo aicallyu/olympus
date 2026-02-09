@@ -131,9 +131,7 @@ serve(async (req: Request) => {
 
 function extractExecutionPayload(agentResponse: string): Record<string, unknown> | null {
   // Look for ```execution ... ``` blocks in agent response
-  const executionBlockRegex = /```execution\s*
-([\s\S]*?)
-```/;
+  const executionBlockRegex = /```execution\s*\n([\s\S]*?)\n```/;
   const match = agentResponse.match(executionBlockRegex);
 
   if (!match) return null;
