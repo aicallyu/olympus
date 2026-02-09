@@ -88,8 +88,6 @@ export function PixelOffice() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [tappedAgent, setTappedAgent] = useState<string | null>(null);
-  const [tappedRoom, setTappedRoom] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>(0);
   const lastUpdateRef = useRef<number>(Date.now());
@@ -327,47 +325,102 @@ export function PixelOffice() {
   const inMeetingCount = agents.filter(a => a.state === 'meeting').length;
 
   return (
-    <div className="w-full h-full bg-gradient-to-br from-[#0a0a12] via-[#12121e] to-[#0f1620] relative overflow-hidden">
+    <div 
+      ref={containerRef}
+      className="w-full h-full bg-gradient-to-br from-[#0a0a12] via-[#12121e] to-[#0f1620] relative overflow-hidden touch-none"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onMouseDown={handleTouchStart}
+      onMouseMove={handleTouchMove}
+      onMouseUp={handleTouchEnd}
+      onMouseLeave={handleTouchEnd}
+    >
       <div className="absolute inset-0 opacity-20" style={{
         backgroundImage: `linear-gradient(rgba(0, 217, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 217, 255, 0.05) 1px, transparent 1px)`,
         backgroundSize: '60px 60px',
       }} />
 
+      {/* Mobile Zoom Controls */}
+      {isMobile && (
+        <div className="absolute bottom-20 right-4 z-50 flex flex-col gap-2">
+          <button 
+            onClick={handleZoomIn}
+            className="w-12 h-12 bg-[#0a0a12]/90 backdrop-blur border border-[#00d9ff]/30 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
+          >
+            <ZoomIn className="w-6 h-6 text-[#00d9ff]" />
+          </button>
+          <button 
+            onClick={handleZoomOut}
+            className="w-12 h-12 bg-[#0a0a12]/90 backdrop-blur border border-[#00d9ff]/30 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
+          >
+            <ZoomOut className="w-6 h-6 text-[#00d9ff]" />
+          </button>
+          <button 
+            onClick={handleResetView}
+            className="w-12 h-12 bg-[#0a0a12]/90 backdrop-blur border border-[#ffd700]/30 rounded-xl flex items-center justify-center active:scale-95 transition-transform"
+          >
+            {scale === (isMobile ? 0.6 : 1) && pan.x === (isMobile ? -100 : 0) ? (
+              <Maximize2 className="w-5 h-5 text-[#ffd700]" />
+            ) : (
+              <Minimize2 className="w-5 h-5 text-[#ffd700]" />
+            )}
+          </button>
+        </div>
+      )}
+
       <div className="absolute top-4 left-4 right-4 z-30 flex justify-between">
-        <div className="flex gap-3">
-          <div className="bg-[#0a0a12]/90 backdrop-blur border border-[#e94560]/30 rounded-xl px-4 py-2">
-            <div className="flex items-center gap-2">
-              <Monitor className="w-4 h-4 text-[#e94560]" />
-              <span className="text-[#eaeaea] text-sm font-mono font-bold">{workingCount} Working</span>
+        <div className="flex gap-2 md:gap-3">
+          <div className="bg-[#0a0a12]/90 backdrop-blur border border-[#e94560]/30 rounded-xl px-3 md:px-4 py-2">
+            <div className="flex items-center gap-1 md:gap-2">
+              <Monitor className="w-3 h-3 md:w-4 md:h-4 text-[#e94560]" />
+              <span className="text-[#eaeaea] text-xs md:text-sm font-mono font-bold">{workingCount} Working</span>
             </div>
           </div>
-          <div className="bg-[#0a0a12]/90 backdrop-blur border border-[#00d9ff]/30 rounded-xl px-4 py-2">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-[#00d9ff]" />
-              <span className="text-[#eaeaea] text-sm font-mono font-bold">{inMeetingCount} In Meeting</span>
+          <div className="bg-[#0a0a12]/90 backdrop-blur border border-[#00d9ff]/30 rounded-xl px-3 md:px-4 py-2">
+            <div className="flex items-center gap-1 md:gap-2">
+              <Users className="w-3 h-3 md:w-4 md:h-4 text-[#00d9ff]" />
+              <span className="text-[#eaeaea] text-xs md:text-sm font-mono font-bold">{inMeetingCount} Meeting</span>
             </div>
           </div>
         </div>
+        {!isMobile && (
+          <div className="flex gap-1">
+            <button onClick={handleZoomOut} className="p-2 hover:bg-[#1a1a2e] rounded-lg"><ZoomOut className="w-4 h-4 text-[#7a7aaa]" /></button>
+            <span className="text-[#7a7aaa] text-sm font-mono px-2">{Math.round(scale * 100)}%</span>
+            <button onClick={handleZoomIn} className="p-2 hover:bg-[#1a1a2e] rounded-lg"><ZoomIn className="w-4 h-4 text-[#7a7aaa]" /></button>
+          </div>
+        )}
       </div>
 
-      <div className="relative w-full h-full pt-20">
+      <div 
+        className="relative w-full h-full pt-20 origin-top-left transition-transform duration-75"
+        style={{
+          transform: `scale(${scale}) translate(${pan.x}px, ${pan.y}px)`,
+          width: isMobile ? '150%' : '100%',
+          height: isMobile ? '150%' : '100%',
+        }}
+      >
         {Object.entries(ROOMS).map(([key, room]) => {
           const Icon = room.icon;
           const agentsInRoom = getAgentsInRoom(key);
-          const isHovered = hoveredRoom === key;
+          const isHovered = !isMobile && hoveredRoom === key;
+          const isTapped = isMobile && tappedRoom === key;
+          const showTooltip = isHovered || isTapped;
           
           return (
             <div key={key}>
               <div
-                className="absolute rounded-2xl border-2 transition-all duration-300"
+                className="absolute rounded-2xl border-2 transition-all duration-300 touch-manipulation"
                 style={{
                   left: room.x, top: room.y, width: room.width, height: room.height,
-                  borderColor: isHovered ? '#00d9ff' : '#2a2a4a',
-                  backgroundColor: isHovered ? 'rgba(0, 217, 255, 0.08)' : 'rgba(20, 20, 35, 0.9)',
-                  boxShadow: isHovered ? '0 0 30px rgba(0, 217, 255, 0.2)' : 'none',
+                  borderColor: showTooltip ? '#00d9ff' : '#2a2a4a',
+                  backgroundColor: showTooltip ? 'rgba(0, 217, 255, 0.08)' : 'rgba(20, 20, 35, 0.9)',
+                  boxShadow: showTooltip ? '0 0 30px rgba(0, 217, 255, 0.2)' : 'none',
                 }}
-                onMouseEnter={() => setHoveredRoom(key)}
-                onMouseLeave={() => setHoveredRoom(null)}
+                onMouseEnter={() => !isMobile && setHoveredRoom(key)}
+                onMouseLeave={() => !isMobile && setHoveredRoom(null)}
+                onClick={() => isMobile && setTappedRoom(tappedRoom === key ? null : key)}
               >
                 <div className="absolute -top-8 left-2 flex items-center gap-2 bg-[#0a0a12] px-3 py-1 rounded-full border border-[#2a2a4a]">
                   <Icon className="w-4 h-4 text-[#7a7aaa]" />
@@ -375,9 +428,13 @@ export function PixelOffice() {
                   <span className="text-[10px] text-[#7a7aaa] font-mono">({agentsInRoom.length}/{room.capacity})</span>
                 </div>
 
-                {isHovered && agentsInRoom.length > 0 && (
-                  <div className="absolute z-40 bg-[#0a0a12]/95 backdrop-blur border border-[#00d9ff]/30 rounded-xl p-3 min-w-[250px]" 
-                    style={{ left: room.x > 500 ? -260 : room.width + 10, top: 10 }}>
+                {showTooltip && agentsInRoom.length > 0 && (
+                  <div className="absolute z-40 bg-[#0a0a12]/95 backdrop-blur border border-[#00d9ff]/30 rounded-xl p-3 min-w-[200px] md:min-w-[250px]" 
+                    style={{ 
+                      left: isMobile ? 0 : (room.x > 500 ? -260 : room.width + 10), 
+                      top: isMobile ? room.height + 10 : 10,
+                      maxWidth: isMobile ? room.width : 'auto'
+                    }}>
                     <p className="text-[10px] text-[#00d9ff] font-mono uppercase mb-2">Who's here:</p>
                     {agentsInRoom.map(agent => (
                       <div key={agent.name} className="mb-2 last:mb-0">
@@ -404,15 +461,19 @@ export function PixelOffice() {
           const dept = DEPARTMENTS[desk.dept];
           const Icon = dept.icon;
           const agent = agents.find(a => a.name === desk.agent);
-          const isHovered = hoveredAgent === desk.agent;
+          const isHovered = !isMobile && hoveredAgent === desk.agent;
+          const isTapped = isMobile && tappedAgent === desk.agent;
+          const showTooltip = isHovered || isTapped;
           
           return (
             <div key={desk.agent} className="absolute" style={{ left: desk.x - 60, top: desk.y - 50 }}
-              onMouseEnter={() => setHoveredAgent(desk.agent)} onMouseLeave={() => setHoveredAgent(null)}>
-              <div className="w-28 h-24 rounded-xl border-2 transition-all duration-300 relative"
+              onMouseEnter={() => !isMobile && setHoveredAgent(desk.agent)} 
+              onMouseLeave={() => !isMobile && setHoveredAgent(null)}
+              onClick={() => isMobile && setTappedAgent(tappedAgent === desk.agent ? null : desk.agent)}>
+              <div className="w-28 h-24 rounded-xl border-2 transition-all duration-300 relative touch-manipulation"
                 style={{
-                  borderColor: isHovered ? dept.color : '#2a2a4a',
-                  backgroundColor: isHovered ? dept.bgColor : 'rgba(15, 15, 26, 0.95)',
+                  borderColor: showTooltip ? dept.color : '#2a2a4a',
+                  backgroundColor: showTooltip ? dept.bgColor : 'rgba(15, 15, 26, 0.95)',
                 }}>
                 <div className="h-6 flex items-center justify-center border-b border-[#2a2a4a] bg-[#1a1a2e] rounded-t-xl">
                   <Icon className="w-3 h-3 mr-1" style={{ color: dept.color }} />
@@ -432,9 +493,13 @@ export function PixelOffice() {
                 </div>
               </div>
 
-              {isHovered && agent && (
-                <div className="absolute z-50 bg-[#0a0a12]/95 backdrop-blur border border-[#00d9ff]/30 rounded-xl p-3 min-w-[220px]" 
-                  style={{ left: desk.x > 600 ? -240 : 130, top: -20 }}>
+              {showTooltip && agent && (
+                <div className="absolute z-50 bg-[#0a0a12]/95 backdrop-blur border border-[#00d9ff]/30 rounded-xl p-3 min-w-[180px] md:min-w-[220px]"
+                  style={{
+                    left: isMobile ? -20 : (desk.x > 600 ? -240 : 130),
+                    top: isMobile ? -160 : -20,
+                    maxWidth: isMobile ? '200px' : 'auto'
+                  }}>
                   <div className="flex justify-between items-start mb-2">
                     <h4 className="text-[#eaeaea] font-bold font-mono">{agent.name}</h4>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono uppercase ${
