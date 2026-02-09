@@ -76,14 +76,15 @@ interface OlympusStore {
   selectedAgentId: string | null
   toasts: Toast[]
   isLoading: boolean
-  
+
   // Actions
   openCreateTask: () => void
   closeCreateTask: () => void
   openAgentProfile: (agentId: string) => void
   closeAgentProfile: () => void
-  
+
   // API Actions
+  fetchStats: () => Promise<void>
   fetchTasks: () => Promise<void>
   fetchAgents: () => Promise<void>
   createTask: (task: { title: string; description?: string; priority: TaskPriority; assignee?: string }) => Promise<boolean>
@@ -92,7 +93,7 @@ interface OlympusStore {
   moveTask: (taskId: string, status: TaskStatus) => void
   addTask: (task: OlympusTask) => void
   addActivity: (activity: OlympusActivity) => void
-  
+
   // Toast
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void
   removeToast: (id: string) => void
@@ -179,10 +180,10 @@ function mapTask(dbTask: any, agents: OlympusAgent[]): OlympusTask {
 
 export const useOlympusStore = create<OlympusStore>((set, get) => ({
   stats: [
-    { id: 'agents', label: 'Active Agents', value: 7, delta: 4.2, trend: [4, 5, 5, 6, 6, 7, 7] },
-    { id: 'tasks', label: 'Open Tasks', value: 28, delta: -2.5, trend: [32, 30, 31, 29, 28, 28, 27] },
-    { id: 'velocity', label: 'Ops Velocity', value: 92, unit: '%', delta: 6.1, trend: [76, 80, 85, 88, 90, 91, 92] },
-    { id: 'latency', label: 'Avg Cycle', value: 3.4, unit: 'h', delta: -8.0, trend: [4.2, 4.0, 3.8, 3.6, 3.5, 3.4, 3.4] },
+    { id: 'agents', label: 'Active Agents', value: 0, delta: 0, trend: [] },
+    { id: 'tasks', label: 'Open Tasks', value: 0, delta: 0, trend: [] },
+    { id: 'velocity', label: 'Ops Velocity', value: 0, unit: '%', delta: 0, trend: [] },
+    { id: 'latency', label: 'Avg Cycle', value: 0, unit: 'h', delta: 0, trend: [] },
   ],
   agents: [],
   tasks: [],
@@ -204,9 +205,99 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
     set((state) => ({ toasts: [...state.toasts, { id, message, type }] }))
     setTimeout(() => get().removeToast(id), 3000)
   },
-  
+
   removeToast: (id) => {
     set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }))
+  },
+
+  fetchStats: async () => {
+    try {
+      // 1. Active Agents: count agents with a configured API endpoint
+      const { count: totalAgents } = await supabase
+        .from('agents')
+        .select('*', { count: 'exact', head: true })
+      const { count: activeAgents } = await supabase
+        .from('agents')
+        .select('*', { count: 'exact', head: true })
+        .not('api_endpoint', 'is', null)
+
+      // 2. Open Tasks: tasks not in 'done' status
+      const { count: openTasks } = await supabase
+        .from('tasks')
+        .select('*', { count: 'exact', head: true })
+        .neq('status', 'done')
+      const { count: totalTasks } = await supabase
+        .from('tasks')
+        .select('*', { count: 'exact', head: true })
+      const { count: doneTasks } = await supabase
+        .from('tasks')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'done')
+
+      // 3. Ops Velocity: % of tasks completed (done / total)
+      const total = totalTasks || 0
+      const done = doneTasks || 0
+      const velocity = total > 0 ? Math.round((done / total) * 100) : 0
+
+      // 4. Avg Cycle: average hours from created_at to updated_at for done tasks
+      const { data: doneTData } = await supabase
+        .from('tasks')
+        .select('created_at, updated_at')
+        .eq('status', 'done')
+        .limit(100)
+      let avgCycle = 0
+      if (doneTData && doneTData.length > 0) {
+        const totalHours = doneTData.reduce((sum, t) => {
+          const created = new Date(t.created_at).getTime()
+          const updated = new Date(t.updated_at).getTime()
+          return sum + (updated - created) / (1000 * 60 * 60)
+        }, 0)
+        avgCycle = Math.round((totalHours / doneTData.length) * 10) / 10
+      }
+
+      // Build trend data from last 7 days of task counts
+      const now = new Date()
+      const taskTrend: number[] = []
+      const doneTrend: number[] = []
+      for (let i = 6; i >= 0; i--) {
+        const dayEnd = new Date(now)
+        dayEnd.setDate(dayEnd.getDate() - i)
+        dayEnd.setHours(23, 59, 59, 999)
+        const { count: dayOpen } = await supabase
+          .from('tasks')
+          .select('*', { count: 'exact', head: true })
+          .neq('status', 'done')
+          .lte('created_at', dayEnd.toISOString())
+        const { count: dayDone } = await supabase
+          .from('tasks')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'done')
+          .lte('created_at', dayEnd.toISOString())
+        taskTrend.push(dayOpen || 0)
+        doneTrend.push(dayDone || 0)
+      }
+
+      // Compute deltas (compare today vs yesterday)
+      const prevAgents = activeAgents || 0
+      const agentsDelta = (totalAgents || 0) > 0 ? Math.round((prevAgents / (totalAgents || 1)) * 100 - 100) : 0
+      const taskDelta = taskTrend.length >= 2 && taskTrend[taskTrend.length - 2] > 0
+        ? Math.round(((taskTrend[taskTrend.length - 1] - taskTrend[taskTrend.length - 2]) / taskTrend[taskTrend.length - 2]) * 1000) / 10
+        : 0
+
+      set({
+        stats: [
+          { id: 'agents', label: 'Active Agents', value: activeAgents || 0, delta: agentsDelta, trend: Array(7).fill(activeAgents || 0) },
+          { id: 'tasks', label: 'Open Tasks', value: openTasks || 0, delta: taskDelta, trend: taskTrend },
+          { id: 'velocity', label: 'Ops Velocity', value: velocity, unit: '%', delta: total > 0 ? Math.round(velocity - 50) : 0, trend: doneTrend.map((d, i) => {
+            const t = (taskTrend[i] || 0) + d
+            return t > 0 ? Math.round((d / t) * 100) : 0
+          }) },
+          { id: 'latency', label: 'Avg Cycle', value: avgCycle || 0, unit: 'h', delta: 0, trend: Array(7).fill(avgCycle || 0) },
+        ],
+      })
+    } catch (error) {
+      console.error('Error fetching stats:', error)
+    }
   },
 
   fetchAgents: async () => {
@@ -218,7 +309,7 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
 
       if (error) throw error
 
-      // Try to fetch metrics for each agent
+      // Try to fetch metrics from agent_metrics table
       let metricsMap: Record<string, any> = {}
       const { data: metricsData } = await supabase
         .from('agent_metrics')
@@ -226,6 +317,47 @@ export const useOlympusStore = create<OlympusStore>((set, get) => ({
       if (metricsData) {
         for (const m of metricsData) {
           metricsMap[m.agent_id] = m
+        }
+      }
+
+      // Compute real task-based stats per agent
+      const { data: allTasks } = await supabase
+        .from('tasks')
+        .select('assignee_id, status')
+      if (allTasks) {
+        const agentTaskMap: Record<string, { total: number; done: number }> = {}
+        for (const t of allTasks) {
+          if (!t.assignee_id) continue
+          if (!agentTaskMap[t.assignee_id]) agentTaskMap[t.assignee_id] = { total: 0, done: 0 }
+          agentTaskMap[t.assignee_id].total++
+          if (t.status === 'done') agentTaskMap[t.assignee_id].done++
+        }
+        // Merge into metricsMap
+        for (const [agentId, counts] of Object.entries(agentTaskMap)) {
+          if (!metricsMap[agentId]) metricsMap[agentId] = {}
+          metricsMap[agentId].tasks_completed = counts.done
+          metricsMap[agentId].efficiency = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0
+        }
+      }
+
+      // Count war room messages per agent for reliability proxy
+      const { data: msgCounts } = await supabase
+        .from('war_room_messages')
+        .select('sender_name')
+        .eq('sender_type', 'agent')
+      if (msgCounts) {
+        const msgMap: Record<string, number> = {}
+        for (const m of msgCounts) {
+          msgMap[m.sender_name] = (msgMap[m.sender_name] || 0) + 1
+        }
+        for (const agent of (data || [])) {
+          const count = msgMap[agent.name] || 0
+          if (!metricsMap[agent.id]) metricsMap[agent.id] = {}
+          // Reliability: agents with endpoint + messages = more reliable
+          metricsMap[agent.id].reliability = agent.api_endpoint
+            ? Math.min(99, 70 + Math.min(count, 30))
+            : 0
+          metricsMap[agent.id].message_count = count
         }
       }
 

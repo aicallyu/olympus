@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
-import { MessageCircle, Plus, Users } from 'lucide-react';
+import { MessageCircle, Plus, Users, Trash2, Search, X } from 'lucide-react';
 import { useOlympusStore } from '@/hooks/useOlympusStore';
 
 const PARTICIPANT_AVATARS: Record<string, string> = {
@@ -42,6 +42,9 @@ export function WarRoomLobby() {
   const [roomName, setRoomName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [dbAgents, setDbAgents] = useState<DbAgent[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     loadRooms();
@@ -170,6 +173,48 @@ export function WarRoomLobby() {
     }
   }
 
+  async function deleteRoom(roomId: string) {
+    try {
+      // Delete messages, participants, then room
+      await supabase.from('war_room_messages').delete().eq('room_id', roomId);
+      await supabase.from('war_room_participants').delete().eq('room_id', roomId);
+      const { error } = await supabase.from('war_rooms').delete().eq('id', roomId);
+      if (error) throw error;
+      setRooms(prev => prev.filter(r => r.id !== roomId));
+      setDeleteConfirm(null);
+      showToast('Room deleted', 'success');
+    } catch (err) {
+      console.error('Delete room failed:', err);
+      showToast('Failed to delete room', 'error');
+    }
+  }
+
+  const filteredRooms = useMemo(() => {
+    let result = rooms;
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(r =>
+        r.name.toLowerCase().includes(q) ||
+        r.description.toLowerCase().includes(q) ||
+        r.participant_names.some(n => n.toLowerCase().includes(q))
+      );
+    }
+
+    // Date filter
+    if (dateFilter !== 'all') {
+      const now = new Date();
+      const cutoff = new Date();
+      if (dateFilter === 'today') cutoff.setHours(0, 0, 0, 0);
+      else if (dateFilter === 'week') cutoff.setDate(now.getDate() - 7);
+      else if (dateFilter === 'month') cutoff.setMonth(now.getMonth() - 1);
+      result = result.filter(r => new Date(r.last_message_at) >= cutoff);
+    }
+
+    return result;
+  }, [rooms, searchQuery, dateFilter]);
+
   function toggleAgent(agentName: string) {
     setSelectedAgents(prev =>
       prev.includes(agentName)
@@ -180,7 +225,7 @@ export function WarRoomLobby() {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex justify-between items-center mb-4">
         <div>
           <h1 className="font-display text-xl uppercase tracking-[0.15em] text-primary">War Room</h1>
           <p className="text-xs text-text-muted font-mono uppercase tracking-[0.2em] mt-1">
@@ -196,59 +241,145 @@ export function WarRoomLobby() {
         </button>
       </div>
 
+      {/* Search + Filter Bar */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        <div className="relative flex-1">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search rooms, participants..."
+            className="w-full bg-[rgba(22,22,32,0.6)] border border-border rounded-lg pl-9 pr-8 py-2 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary/60 font-mono"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1.5">
+          {(['all', 'today', 'week', 'month'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setDateFilter(f)}
+              className={`px-3 py-2 rounded-lg border text-[10px] font-mono uppercase tracking-[0.1em] transition-colors ${
+                dateFilter === f
+                  ? 'border-primary/40 bg-[rgba(184,150,90,0.12)] text-primary'
+                  : 'border-border bg-[rgba(22,22,32,0.6)] text-text-muted hover:text-text-secondary'
+              }`}
+            >
+              {f === 'all' ? 'All' : f === 'today' ? 'Today' : f === 'week' ? '7d' : '30d'}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Room List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {rooms.map(room => (
-          <button
+        {filteredRooms.map(room => (
+          <div
             key={room.id}
-            onClick={() => navigate(`/war-room/${room.id}`)}
-            className="text-left rounded-xl border border-border bg-[rgba(22,22,32,0.88)] p-4 hover:border-primary/40 transition-colors animate-card-reveal"
+            className="relative group text-left rounded-xl border border-border bg-[rgba(22,22,32,0.88)] p-4 hover:border-primary/40 transition-colors animate-card-reveal"
           >
-            <div className="flex items-start gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-[rgba(184,150,90,0.15)] border border-primary/20 flex items-center justify-center">
-                <MessageCircle className="text-primary" size={18} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-mono uppercase tracking-[0.1em] text-text-primary truncate">{room.name}</h3>
-                <p className="text-[10px] font-mono text-text-muted truncate">{room.description}</p>
-              </div>
-            </div>
+            {/* Delete button */}
+            <button
+              onClick={(e) => { e.stopPropagation(); setDeleteConfirm(room.id); }}
+              className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 border border-transparent hover:border-error/30 hover:bg-[rgba(239,68,68,0.1)] text-text-muted hover:text-error transition-all z-10"
+              title="Delete room"
+            >
+              <Trash2 size={14} />
+            </button>
 
-            <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-[0.15em] text-text-muted">
-              <div className="flex items-center gap-1">
-                <Users size={12} />
-                <span>{room.participant_names.length}</span>
+            <button
+              onClick={() => navigate(`/war-room/${room.id}`)}
+              className="w-full text-left"
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-[rgba(184,150,90,0.15)] border border-primary/20 flex items-center justify-center shrink-0">
+                  <MessageCircle className="text-primary" size={18} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-mono uppercase tracking-[0.1em] text-text-primary truncate">{room.name}</h3>
+                  <p className="text-[10px] font-mono text-text-muted truncate">{room.description}</p>
+                </div>
               </div>
-              <div>{room.message_count} msgs</div>
-              <div className="ml-auto">
-                {new Date(room.last_message_at).toLocaleDateString()}
-              </div>
-            </div>
 
-            <div className="flex gap-1.5 mt-3">
-              {room.participant_names.slice(0, 5).map((name, i) => (
-                <div
-                  key={i}
-                  className="w-6 h-6 rounded-full bg-[rgba(184,150,90,0.12)] border border-border flex items-center justify-center text-[10px] font-mono text-text-secondary"
-                >
-                  {name[0]}
+              <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-[0.15em] text-text-muted">
+                <div className="flex items-center gap-1">
+                  <Users size={12} />
+                  <span>{room.participant_names.length}</span>
                 </div>
-              ))}
-              {room.participant_names.length > 5 && (
-                <div className="w-6 h-6 rounded-full bg-[rgba(184,150,90,0.12)] border border-border flex items-center justify-center text-[10px] font-mono text-text-muted">
-                  +{room.participant_names.length - 5}
+                <div>{room.message_count} msgs</div>
+                <div className="ml-auto">
+                  {new Date(room.last_message_at).toLocaleDateString('de-DE')}
                 </div>
-              )}
-            </div>
-          </button>
+              </div>
+
+              <div className="flex gap-1.5 mt-3">
+                {room.participant_names.slice(0, 5).map((name, i) => (
+                  <div
+                    key={i}
+                    className="w-6 h-6 rounded-full bg-[rgba(184,150,90,0.12)] border border-border flex items-center justify-center text-[10px] font-mono text-text-secondary"
+                  >
+                    {name[0]}
+                  </div>
+                ))}
+                {room.participant_names.length > 5 && (
+                  <div className="w-6 h-6 rounded-full bg-[rgba(184,150,90,0.12)] border border-border flex items-center justify-center text-[10px] font-mono text-text-muted">
+                    +{room.participant_names.length - 5}
+                  </div>
+                )}
+              </div>
+            </button>
+          </div>
         ))}
       </div>
+
+      {filteredRooms.length === 0 && rooms.length > 0 && (
+        <div className="glass-panel p-8 flex flex-col items-center justify-center">
+          <Search size={24} className="text-text-muted mb-3" />
+          <p className="text-sm text-text-muted font-mono">No rooms match your filter</p>
+          <button onClick={() => { setSearchQuery(''); setDateFilter('all'); }} className="text-xs text-primary font-mono mt-2 hover:underline">
+            Clear filters
+          </button>
+        </div>
+      )}
 
       {rooms.length === 0 && (
         <div className="glass-panel p-12 flex flex-col items-center justify-center">
           <MessageCircle size={32} className="text-text-muted mb-3" />
           <p className="text-sm text-text-muted font-mono">No conversations yet</p>
           <p className="text-xs text-text-muted mt-1">Create your first War Room to get started</p>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="glass-panel glow-border rounded-lg p-6 w-full max-w-sm">
+            <h3 className="font-mono text-sm uppercase tracking-[0.15em] text-error mb-3">Delete Room</h3>
+            <p className="text-xs text-text-secondary font-mono mb-1">
+              This will permanently delete the room, all messages, and all participants.
+            </p>
+            <p className="text-xs text-text-muted font-mono mb-5">
+              Room: {rooms.find(r => r.id === deleteConfirm)?.name}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-border bg-[rgba(22,22,32,0.6)] text-text-secondary text-xs font-mono uppercase tracking-[0.1em] hover:text-text-primary transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteRoom(deleteConfirm)}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-error/30 bg-[rgba(239,68,68,0.15)] text-error text-xs font-mono uppercase tracking-[0.1em] hover:bg-[rgba(239,68,68,0.25)] transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
