@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { OfficeAgent } from './OfficeAgent';
-import { 
-  Coffee, Dumbbell, Brain, 
-  MessageSquare, Terminal, Crown, Sword
-} from 'lucide-react';
+import { Crown } from 'lucide-react';
 
 interface Task {
   id: string;
@@ -25,470 +22,264 @@ interface Agent {
   position: { x: number; y: number };
   targetPosition: { x: number; y: number } | null;
   currentTask: Task | null;
-  lastTask: Task | null;
-  lastTaskCompletedAt: string | null;
   activity: string;
-  state: 'working' | 'break' | 'training' | 'meeting' | 'idle';
-  timeInState: number;
+  state: 'working' | 'idle' | 'roaming';
 }
 
-// Olymp Theme Colors - Each agent has their own color world
 const AGENT_THEMES: Record<string, { 
   primary: string; 
   secondary: string; 
   accent: string;
-  marble: string;
-  title: string;
+  glow: string;
 }> = {
-  ARGOS: { primary: '#FFD700', secondary: '#B8860B', accent: '#FFA500', marble: '#FFF8DC', title: 'King of Olympus' },
-  ATLAS: { primary: '#00CED1', secondary: '#008B8B', accent: '#5F9EA0', marble: '#E0FFFF', title: 'Frontend Titan' },
-  HERCULOS: { primary: '#FF4500', secondary: '#DC143C', accent: '#FF6347', marble: '#FFE4E1', title: 'Backend Champion' },
-  ATHENA: { primary: '#C0C0C0', secondary: '#A9A9A9', accent: '#D3D3D3', marble: '#F5F5F5', title: 'Goddess of QA' },
-  APOLLO: { primary: '#FF1493', secondary: '#C71585', accent: '#FF69B4', marble: '#FFF0F5', title: 'Creative Muse' },
-  PROMETHEUS: { primary: '#32CD32', secondary: '#228B22', accent: '#00FF7F', marble: '#F0FFF0', title: 'Infrastructure Titan' },
-  HERMES: { primary: '#DAA520', secondary: '#8B4513', accent: '#CD853F', marble: '#FFF8DC', title: 'Messenger of Docs' },
-  Claude: { primary: '#9370DB', secondary: '#8A2BE2', accent: '#BA55D3', marble: '#E6E6FA', title: 'AI Architect' },
-  Juan: { primary: '#4169E1', secondary: '#0000CD', accent: '#1E90FF', marble: '#F0F8FF', title: 'System Architect' },
-  Nathanael: { primary: '#20B2AA', secondary: '#008080', accent: '#48D1CC', marble: '#E0FFFF', title: 'Frontend Developer' },
+  ARGOS: { primary: '#FFD700', secondary: '#B8860B', accent: '#FFA500', glow: 'rgba(255,215,0,0.5)' },
+  ATLAS: { primary: '#00CED1', secondary: '#008B8B', accent: '#5F9EA0', glow: 'rgba(0,206,209,0.5)' },
+  HERCULOS: { primary: '#FF4500', secondary: '#DC143C', accent: '#FF6347', glow: 'rgba(255,69,0,0.5)' },
+  ATHENA: { primary: '#E8E8E8', secondary: '#C0C0C0', accent: '#FFFFFF', glow: 'rgba(232,232,232,0.5)' },
+  APOLLO: { primary: '#FF1493', secondary: '#C71585', accent: '#FF69B4', glow: 'rgba(255,20,147,0.5)' },
+  PROMETHEUS: { primary: '#32CD32', secondary: '#228B22', accent: '#00FF7F', glow: 'rgba(50,205,50,0.5)' },
+  HERMES: { primary: '#DAA520', secondary: '#8B4513', accent: '#CD853F', glow: 'rgba(218,165,32,0.5)' },
+  Claude: { primary: '#9370DB', secondary: '#8A2BE2', accent: '#BA55D3', glow: 'rgba(147,112,219,0.5)' },
+  Juan: { primary: '#4169E1', secondary: '#0000CD', accent: '#1E90FF', glow: 'rgba(65,105,225,0.5)' },
+  Nathanael: { primary: '#20B2AA', secondary: '#008080', accent: '#48D1CC', glow: 'rgba(32,178,170,0.5)' },
 };
 
-// Olymp Temple Grid Layout - Clean, no overlaps
-const TEMPLE_LAYOUT = {
-  // Top Row - Command & Strategy
-  ARGOS:      { x: 100, y: 80,  width: 180, height: 140, room: 'throne' },
-  Juan:       { x: 320, y: 80,  width: 160, height: 140, room: 'executive' },
-  
-  // Middle Row - Engineering & AI
-  ATLAS:      { x: 60,  y: 260, width: 160, height: 130, room: 'workshop' },
-  HERCULOS:   { x: 240, y: 260, width: 160, height: 130, room: 'forge' },
-  Claude:     { x: 420, y: 260, width: 160, height: 130, room: 'library' },
-  Nathanael:  { x: 600, y: 260, width: 140, height: 130, room: 'frontend' },
-  
-  // Bottom Row - Support & Creative
-  ATHENA:     { x: 60,  y: 430, width: 140, height: 130, room: 'temple' },
-  PROMETHEUS: { x: 220, y: 430, width: 160, height: 130, room: 'lab' },
-  APOLLO:     { x: 400, y: 430, width: 140, height: 130, room: 'studio' },
-  HERMES:     { x: 560, y: 430, width: 140, height: 130, room: 'archive' },
-  
-  // Common Areas - Right Side
-  kitchen:    { x: 760, y: 80,  width: 150, height: 120, label: 'Ambrosia Hall', icon: Coffee },
-  lounge:     { x: 760, y: 220, width: 150, height: 120, label: 'Resting Gardens', icon: MessageSquare },
-  gym:        { x: 760, y: 360, width: 150, height: 120, label: 'Training Grounds', icon: Dumbbell },
-  warRoom:    { x: 760, y: 500, width: 150, height: 100, label: 'War Room', icon: Terminal },
+const TEMPLE_ROOMS: Record<string, { x: number; y: number; w: number; h: number; label: string }> = {
+  ARGOS: { x: 80, y: 60, w: 200, h: 160, label: 'Throne' },
+  Juan: { x: 320, y: 60, w: 180, h: 160, label: 'Executive' },
+  ATLAS: { x: 40, y: 260, w: 180, h: 150, label: 'Workshop' },
+  HERCULOS: { x: 240, y: 260, w: 180, h: 150, label: 'Forge' },
+  Claude: { x: 440, y: 260, w: 180, h: 150, label: 'Library' },
+  Nathanael: { x: 640, y: 260, w: 160, h: 150, label: 'Frontend' },
+  ATHENA: { x: 40, y: 440, w: 160, h: 150, label: 'Temple' },
+  PROMETHEUS: { x: 220, y: 440, w: 180, h: 150, label: 'Lab' },
+  APOLLO: { x: 420, y: 440, w: 160, h: 150, label: 'Studio' },
+  HERMES: { x: 600, y: 440, w: 160, h: 150, label: 'Archive' },
+  kitchen: { x: 820, y: 60, w: 180, h: 140, label: 'Ambrosia' },
+  lounge: { x: 820, y: 220, w: 180, h: 140, label: 'Gardens' },
+  gym: { x: 820, y: 380, w: 180, h: 140, label: 'Arena' },
+  warRoom: { x: 820, y: 540, w: 180, h: 120, label: 'War Room' },
 };
 
 export function PixelOffice() {
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
-  const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
-  const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
-  const animationRef = useRef<number>(0);
-  const lastUpdateRef = useRef<number>(Date.now());
+  const [hovered, setHovered] = useState<string | null>(null);
+  const animRef = useRef<number>(0);
 
-  // Fetch agents
+  // Initialize agents
   useEffect(() => {
-    const fetchData = async () => {
-      const { data: agentsData } = await supabase
+    const load = async () => {
+      const { data } = await supabase
         .from('agents')
-        .select('id, name, role, status, current_task_id, type, last_completed_task_id, last_task_completed_at')
+        .select('*')
         .order('name');
 
-      if (!agentsData) return;
-
-      const currentTaskIds = agentsData.map(a => a.current_task_id).filter(Boolean);
-      const { data: currentTasks } = currentTaskIds.length > 0 
-        ? await supabase.from('tasks').select('*').in('id', currentTaskIds)
-        : { data: [] };
-
-      const lastTaskIds = agentsData.map(a => a.last_completed_task_id).filter(Boolean);
-      const { data: lastTasks } = lastTaskIds.length > 0
-        ? await supabase.from('tasks').select('*').in('id', lastTaskIds)
-        : { data: [] };
-
-      const currentTasksMap = new Map(currentTasks?.map((t: Task) => [t.id, t]) || []);
-      const lastTasksMap = new Map(lastTasks?.map((t: Task) => [t.id, t]) || []);
-
-      const agentsWithData: Agent[] = agentsData.map((agent: any) => {
-        const layout = TEMPLE_LAYOUT[agent.name as keyof typeof TEMPLE_LAYOUT];
-        const center = layout && 'room' in layout ? 
-          { x: layout.x + layout.width / 2, y: layout.y + layout.height / 2 } :
-          { x: 400, y: 300 };
-          
-        const currentTask = agent.current_task_id ? currentTasksMap.get(agent.current_task_id) : null;
-        const lastTask = agent.last_completed_task_id ? lastTasksMap.get(agent.last_completed_task_id) : null;
-        
-        const isWorking = agent.status === 'working' && currentTask;
-
-        return {
-          ...agent,
-          position: center,
-          targetPosition: null,
-          currentTask,
-          lastTask,
-          lastTaskCompletedAt: agent.last_task_completed_at,
-          activity: isWorking ? `Working: ${currentTask.title}` : 'Idle',
-          state: isWorking ? 'working' : 'idle',
-          timeInState: 0,
-        };
-      });
-
-      setAgents(agentsWithData);
+      if (data) {
+        const withPos = data.map((a: any) => {
+          const room = TEMPLE_ROOMS[a.name] || TEMPLE_ROOMS.ATLAS;
+          return {
+            ...a,
+            position: { x: room.x + room.w/2, y: room.y + room.h/2 },
+            targetPosition: null,
+            currentTask: null,
+            activity: a.status === 'working' ? 'Working' : 'Idle',
+            state: a.status === 'working' ? 'working' : 'idle',
+          };
+        });
+        setAgents(withPos);
+      }
     };
-
-    fetchData();
-
-    const subscription = supabase
-      .channel('agent-status')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'agents' }, () => fetchData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => fetchData())
-      .subscribe();
-
-    return () => { subscription.unsubscribe(); };
+    load();
   }, []);
 
-  // Animation loop
+  // Animation loop - smooth roaming for idle agents
   useEffect(() => {
+    let lastTime = Date.now();
+    
     const animate = () => {
       const now = Date.now();
-      const dt = (now - lastUpdateRef.current) / 1000;
-      lastUpdateRef.current = now;
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
 
       setAgents(prev => prev.map(agent => {
-        const timeInState = agent.timeInState + dt;
+        // If working, stay still
+        if (agent.state === 'working') return agent;
 
-        if (!agent.targetPosition) {
-          // Working agents stay in their room
-          if (agent.state === 'working') {
-            return { ...agent, timeInState };
-          }
-
-          // Movement logic for breaks
-          if (agent.state === 'break' && timeInState > 120) {
-            const room = TEMPLE_LAYOUT[agent.name as keyof typeof TEMPLE_LAYOUT];
-            if (room && 'room' in room) {
-              return {
-                ...agent,
-                targetPosition: { x: room.x + room.width / 2, y: room.y + room.height / 2 },
-                state: 'idle',
-                activity: 'Back in temple',
-                timeInState: 0
-              };
-            }
-          }
-
-          return { ...agent, timeInState };
+        // If no target, pick random wander point occasionally
+        if (!agent.targetPosition && Math.random() < 0.005) {
+          const room = TEMPLE_ROOMS[agent.name] || TEMPLE_ROOMS.ATLAS;
+          // Wander within room bounds
+          const target = {
+            x: room.x + 30 + Math.random() * (room.w - 60),
+            y: room.y + 30 + Math.random() * (room.h - 60)
+          };
+          return { ...agent, targetPosition: target, state: 'roaming' as const };
         }
 
-        // Move towards target
-        const dx = agent.targetPosition.x - agent.position.x;
-        const dy = agent.targetPosition.y - agent.position.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        // If has target, move towards it
+        if (agent.targetPosition) {
+          const dx = agent.targetPosition.x - agent.position.x;
+          const dy = agent.targetPosition.y - agent.position.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
 
-        if (distance < 3) {
-          return { 
-            ...agent, 
-            targetPosition: null, 
-            position: agent.targetPosition,
-            timeInState: 0
+          if (dist < 5) {
+            return { ...agent, targetPosition: null, state: 'idle' as const };
+          }
+
+          const speed = 40 * dt; // pixels per second
+          return {
+            ...agent,
+            position: {
+              x: agent.position.x + (dx/dist) * speed,
+              y: agent.position.y + (dy/dist) * speed,
+            }
           };
         }
 
-        const speed = agent.state === 'working' ? 2 : 1;
-        return {
-          ...agent,
-          position: {
-            x: agent.position.x + (dx / distance) * speed,
-            y: agent.position.y + (dy / distance) * speed,
-          },
-          timeInState
-        };
+        return agent;
       }));
 
-      animationRef.current = requestAnimationFrame(animate);
+      animRef.current = requestAnimationFrame(animate);
     };
 
-    animationRef.current = requestAnimationFrame(animate);
-    return () => { if (animationRef.current) cancelAnimationFrame(animationRef.current); };
+    animRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animRef.current);
   }, []);
 
-  const workingCount = agents.filter(a => a.state === 'working').length;
+  const working = agents.filter(a => a.state === 'working').length;
 
   return (
-    <div className="w-full h-full bg-[#0a0a0f] relative overflow-hidden font-mono">
-      {/* Marble Temple Background */}
-      <div 
-        className="absolute inset-0 opacity-10"
+    <div className="w-full h-full bg-[#0d0d14] relative overflow-hidden select-none">
+      {/* Temple Background Pattern */}
+      <div className="absolute inset-0 opacity-20"
         style={{
           backgroundImage: `
-            linear-gradient(90deg, rgba(255,215,0,0.1) 1px, transparent 1px),
-            linear-gradient(rgba(255,215,0,0.1) 1px, transparent 1px)
+            linear-gradient(90deg, rgba(218,165,32,0.15) 1px, transparent 1px),
+            linear-gradient(rgba(218,165,32,0.15) 1px, transparent 1px)
           `,
-          backgroundSize: '80px 80px',
+          backgroundSize: '100px 100px',
         }}
       />
 
-      {/* Temple Header */}
-      <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-[#1a1a2e] to-transparent z-20 flex items-center justify-between px-6">
-        <div className="flex items-center gap-3">
-          <Crown className="w-6 h-6 text-[#FFD700]" />
-          <span className="text-[#FFD700] text-lg font-bold tracking-wider">OLYMPUS COMMAND</span>
+      {/* Decorative Columns */}
+      {[100, 300, 500, 700, 900].map((x, i) => (
+        <div key={i} className="absolute top-0 bottom-0 w-6 opacity-20"
+          style={{ 
+            left: x,
+            background: 'linear-gradient(90deg, #DAA520 0%, #8B4513 50%, #DAA520 100%)'
+          }}
+        />
+      ))}
+
+      {/* Header */}
+      <div className="absolute top-0 left-0 right-0 h-14 bg-gradient-to-b from-[#0d0d14] to-transparent z-20 flex items-center justify-between px-6">
+        <div className="flex items-center gap-2">
+          <Crown className="w-5 h-5 text-[#FFD700]" />
+          <span className="text-[#FFD700] text-sm font-bold tracking-widest">OLYMP</span>
         </div>
-        <div className="flex items-center gap-4 text-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-[#e94560] animate-pulse" />
-            <span className="text-[#eaeaea]">{workingCount} Working</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-[#ffd700]" />
-            <span className="text-[#eaeaea]">{agents.length - workingCount} Idle</span>
-          </div>
+        <div className="flex gap-4 text-xs">
+          <span className="text-[#e94560]">{working} Working</span>
+          <span className="text-[#ffd700]">{agents.length - working} Idle</span>
         </div>
       </div>
 
-      {/* Temple Grid */}
-      <div className="absolute inset-0 pt-20 pb-24 px-4 overflow-auto">
-        <div className="relative w-[950px] h-[650px] mx-auto">
+      {/* Temple Floor */}
+      <div className="absolute inset-0 pt-14 pb-20 overflow-auto">
+        <div className="relative w-[1050px] h-[700px] mx-auto">
           
-          {/* Greek Columns Decoration */}
-          {[50, 250, 450, 650, 850].map((x, i) => (
-            <div 
-              key={i}
-              className="absolute top-0 bottom-0 w-4 bg-gradient-to-b from-[#DAA520] via-[#B8860B] to-[#8B4513] opacity-30"
-              style={{ left: x }}
-            />
-          ))}
+          {/* Rooms */}
+          {Object.entries(TEMPLE_ROOMS).map(([name, room]) => {
+            const isAgent = !!AGENT_THEMES[name];
+            const theme = AGENT_THEMES[name] || { primary: '#DAA520', secondary: '#8B4513', accent: '#CD853F', glow: 'rgba(218,165,32,0.3)' };
+            const isHovered = hovered === name;
 
-          {/* Agent Temple Rooms */}
-          {Object.entries(TEMPLE_LAYOUT).map(([key, room]) => {
-            if (!('room' in room)) return null;
-            
-            const theme = AGENT_THEMES[key];
-            const agent = agents.find(a => a.name === key);
-            const isHovered = hoveredAgent === key;
-            
             return (
               <div
-                key={key}
-                className="absolute rounded-lg border-2 transition-all duration-300 overflow-hidden"
+                key={name}
+                className="absolute rounded-xl border-2 transition-all duration-300"
                 style={{
                   left: room.x,
                   top: room.y,
-                  width: room.width,
-                  height: room.height,
+                  width: room.w,
+                  height: room.h,
                   borderColor: isHovered ? theme.primary : theme.secondary,
-                  background: `linear-gradient(135deg, ${theme.marble}15 0%, ${theme.primary}10 100%)`,
-                  boxShadow: isHovered ? `0 0 20px ${theme.primary}40` : 'none',
+                  background: `linear-gradient(180deg, ${theme.glow}20 0%, transparent 60%)`,
+                  boxShadow: isHovered ? `0 0 30px ${theme.glow}` : 'inset 0 0 20px rgba(0,0,0,0.5)',
                 }}
-                onMouseEnter={() => setHoveredAgent(key)}
-                onMouseLeave={() => setHoveredAgent(null)}
+                onMouseEnter={() => setHovered(name)}
+                onMouseLeave={() => setHovered(null)}
               >
-                {/* Room Header */}
-                <div 
-                  className="h-7 flex items-center justify-between px-3 border-b"
-                  style={{ borderColor: theme.primary + '40', backgroundColor: theme.primary + '15' }}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-[9px] text-[#eaeaea] font-bold uppercase tracking-wider">{key}</span>
-                  </div>
-                  <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" 
-                    style={{ backgroundColor: theme.primary, color: '#0a0a0f' }}>
-                    {theme.title}
-                  </span>
+                {/* Room Label */}
+                <div className="absolute -top-3 left-4 px-2 py-0.5 bg-[#0d0d14] border rounded text-[10px] font-bold uppercase"
+                  style={{ borderColor: theme.primary, color: theme.primary }}>
+                  {room.label}
                 </div>
 
-                {/* Room Content */}
-                <div className="p-2 h-[calc(100%-28px)] flex flex-col">
-                  {/* Thematic Elements */}
-                  {key === 'ARGOS' && (
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="w-16 h-12 bg-[#FFD700]/20 rounded-lg border border-[#FFD700]/40 flex items-center justify-center">
-                        <Crown className="w-8 h-8 text-[#FFD700]/60" />
-                      </div>
+                {/* Room Content based on type */}
+                {name === 'ARGOS' && (
+                  <div className="absolute inset-4 flex items-center justify-center">
+                    <div className="w-20 h-16 bg-[#FFD700]/20 rounded-lg border-2 border-[#FFD700]/50 flex items-center justify-center">
+                      <Crown className="w-10 h-10 text-[#FFD700]/60" />
                     </div>
-                  )}
-                  {key === 'ATLAS' && (
-                    <div className="flex-1 grid grid-cols-2 gap-1 p-1">
-                      <div className="bg-[#00CED1]/20 rounded border border-[#00CED1]/30" />
-                      <div className="bg-[#00CED1]/20 rounded border border-[#00CED1]/30" />
-                      <div className="bg-[#00CED1]/20 rounded border border-[#00CED1]/30" />
-                      <div className="bg-[#00CED1]/20 rounded border border-[#00CED1]/30" />
-                    </div>
-                  )}
-                  {key === 'HERCULOS' && (
-                    <div className="flex-1 flex items-center justify-center gap-2">
-                      <div className="w-4 h-12 bg-[#FF4500]/30 rounded border border-[#FF4500]/50" />
-                      <Sword className="w-6 h-6 text-[#FF4500]/50" />
-                    </div>
-                  )}
-                  {key === 'Claude' && (
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="w-14 h-14 bg-[#9370DB]/20 rounded-full border border-[#9370DB]/40 flex items-center justify-center">
-                        <Brain className="w-8 h-8 text-[#9370DB]/60" />
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Agent Status */}
-                  {agent && (
-                    <div className="mt-auto flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <div className={`w-1.5 h-1.5 rounded-full ${
-                          agent.state === 'working' ? 'bg-[#e94560] animate-pulse' : 'bg-[#ffd700]'
-                        }`} />
-                        <span className="text-[8px] text-[#7a7aaa]">{agent.state}</span>
-                      </div>
-                      {agent.currentTask && (
-                        <div className="w-12 h-1 bg-[#1a1a2e] rounded-full overflow-hidden">
-                          <div 
-                            className="h-full rounded-full transition-all"
-                            style={{ 
-                              width: `${agent.currentTask.progress}%`,
-                              backgroundColor: theme.primary
-                            }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Hover Tooltip */}
-                {isHovered && agent && (
-                  <div className="absolute z-50 bg-[#0a0a0f]/95 backdrop-blur border rounded-lg p-3 min-w-[200px]"
-                    style={{ borderColor: theme.primary + '40', left: room.width + 10, top: 10 }}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-[#eaeaea] font-bold">{agent.name}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded" 
-                        style={{ backgroundColor: theme.primary + '20', color: theme.primary }}>
-                        {agent.state}
-                      </span>
-                    </div>
-                    {agent.currentTask ? (
-                      <>
-                        <p className="text-[10px] text-[#7a7aaa] mb-1">{agent.currentTask.title}</p>
-                        <div className="w-full h-1.5 bg-[#1a1a2e] rounded-full">
-                          <div className="h-full rounded-full transition-all" 
-                            style={{ width: `${agent.currentTask.progress}%`, backgroundColor: theme.primary }} />
-                        </div>
-                        <p className="text-[9px] text-[#7a7aaa] mt-1">{agent.currentTask.progress}%</p>
-                      </>
-                    ) : (
-                      <p className="text-[10px] text-[#7a7aaa] italic">No active task</p>
-                    )}
                   </div>
+                )}
+                {name === 'HERCULOS' && (
+                  <div className="absolute inset-4 flex items-end justify-center gap-2">
+                    <div className="w-6 h-12 bg-[#FF4500]/30 rounded border border-[#FF4500]/50" />
+                    <div className="w-8 h-8 bg-[#FF4500]/20 rounded-full border border-[#FF4500]/40" />
+                  </div>
+                )}
+                {name === 'Claude' && (
+                  <div className="absolute inset-4 flex items-center justify-center">
+                    <div className="w-16 h-16 bg-[#9370DB]/20 rounded-full border-2 border-[#9370DB]/50" />
+                  </div>
+                )}
+
+                {/* Glow effect for agent rooms */}
+                {isAgent && (
+                  <div className="absolute inset-0 rounded-xl pointer-events-none"
+                    style={{
+                      background: `radial-gradient(circle at center, ${theme.glow}30 0%, transparent 70%)`,
+                    }}
+                  />
                 )}
               </div>
             );
           })}
 
-          {/* Common Areas */}
-          {['kitchen', 'lounge', 'gym', 'warRoom'].map((key) => {
-            const room = TEMPLE_LAYOUT[key as keyof typeof TEMPLE_LAYOUT];
-            if (!room || 'room' in room) return null;
-            
-            const isHovered = hoveredRoom === key;
-            
-            return (
-              <div
-                key={key}
-                className="absolute rounded-lg border-2 border-[#DAA520]/40 bg-[#1a1a2e]/80 transition-all duration-300"
-                style={{
-                  left: room.x,
-                  top: room.y,
-                  width: room.width,
-                  height: room.height,
-                  boxShadow: isHovered ? '0 0 20px rgba(218,165,32,0.3)' : 'none',
-                }}
-                onMouseEnter={() => setHoveredRoom(key)}
-                onMouseLeave={() => setHoveredRoom(null)}
-              >
-                <div className="h-6 flex items-center justify-center border-b border-[#DAA520]/30 bg-[#DAA520]/10">
-                  <span className="text-[9px] text-[#DAA520] font-bold">{room.label}</span>
-                </div>
-                <div className="p-2 flex items-center justify-center h-[calc(100%-24px)]">
-                  {key === 'kitchen' && <Coffee className="w-8 h-8 text-[#DAA520]/40" />}
-                  {key === 'lounge' && <MessageSquare className="w-8 h-8 text-[#4ecdc4]/40" />}
-                  {key === 'gym' && <Dumbbell className="w-8 h-8 text-[#e94560]/40" />}
-                  {key === 'warRoom' && <Terminal className="w-8 h-8 text-[#ffd700]/40" />}
-                </div>
-              </div>
-            );
-          })}
-
           {/* Agents */}
-          {agents.map((agent) => (
+          {agents.map(agent => (
             <OfficeAgent
               key={agent.id}
               agent={agent}
               theme={AGENT_THEMES[agent.name]}
-              onClick={() => setSelectedAgent(agent)}
+              isHovered={hovered === agent.name}
+              onHover={() => setHovered(agent.name)}
             />
           ))}
         </div>
       </div>
 
-      {/* Status Bar - Bottom */}
-      <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0a0a0f] via-[#0a0a0f] to-transparent z-30">
-        <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-          {/* Agent Status List */}
-          <div className="flex gap-2 overflow-x-auto pb-2 max-w-[70%]">
-            {agents.map(agent => {
-              const theme = AGENT_THEMES[agent.name];
-              return (
-                <div 
-                  key={agent.id}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all hover:scale-105"
-                  style={{ 
-                    borderColor: theme.primary + '40',
-                    backgroundColor: theme.primary + '10'
-                  }}
-                  onClick={() => setSelectedAgent(agent)}
-                >
-                  <div className={`w-2 h-2 rounded-full ${
-                    agent.state === 'working' ? 'bg-[#e94560] animate-pulse' : 'bg-[#ffd700]'
-                  }`} />
-                  <span className="text-[10px] text-[#eaeaea] font-bold whitespace-nowrap">{agent.name}</span>
-                  <span className="text-[9px] text-[#7a7aaa] uppercase">{agent.state}</span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Legend */}
-          <div className="flex gap-3 text-[10px]">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-[#e94560] animate-pulse" />
-              <span className="text-[#7a7aaa]">Working</span>
+      {/* Status Bar */}
+      <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0d0d14] via-[#0d0d14] to-transparent z-30">
+        <div className="absolute bottom-4 left-4 right-4 flex gap-2 overflow-x-auto">
+          {agents.map(a => (
+            <div key={a.id} 
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-[#0d0d14]/80 whitespace-nowrap"
+              style={{ 
+                borderColor: AGENT_THEMES[a.name]?.primary + '40',
+                boxShadow: `0 0 10px ${AGENT_THEMES[a.name]?.glow}20`
+              }}>
+              <div className={`w-2 h-2 rounded-full ${
+                a.state === 'working' ? 'bg-[#e94560] animate-pulse' : 
+                a.state === 'roaming' ? 'bg-[#00d9ff]' : 'bg-[#ffd700]'
+              }`} />
+              <span className="text-[10px] text-[#eaeaea] font-bold">{a.name}</span>
+              <span className="text-[9px] text-[#7a7aaa] uppercase">{a.state}</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-[#ffd700]" />
-              <span className="text-[#7a7aaa]">Idle</span>
-            </div>
-          </div>
+          ))}
         </div>
       </div>
-
-      {/* Selected Agent Panel */}
-      {selectedAgent && (
-        <div className="absolute bottom-24 right-4 w-72 bg-[#0a0a0f]/95 backdrop-blur border border-[#FFD700]/30 rounded-xl p-4 z-40">
-          <div className="flex justify-between items-start mb-3">
-            <div>
-              <h3 className="text-[#eaeaea] font-bold text-lg">{selectedAgent.name}</h3>
-              <p className="text-[#7a7aaa] text-xs">{selectedAgent.role}</p>
-            </div>
-            <button onClick={() => setSelectedAgent(null)} className="text-[#7a7aaa] hover:text-[#eaeaea]">×</button>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${
-                selectedAgent.state === 'working' ? 'bg-[#e94560] animate-pulse' : 'bg-[#ffd700]'
-              }`} />
-              <span className="text-[#eaeaea] text-sm capitalize">{selectedAgent.state}</span>
-            </div>
-            <p className="text-[#7a7aaa] text-xs">{selectedAgent.activity}</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
