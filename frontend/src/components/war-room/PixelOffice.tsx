@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { OfficeAgent } from './OfficeAgent';
 import { 
-  Coffee, Users, Dumbbell, Monitor, Zap, Brain, Code, Shield, 
-  Flame, BookOpen, MessageSquare, Terminal, CheckCircle, Crown, Sword, Scroll, Eye
+  Coffee, Dumbbell, Brain, 
+  MessageSquare, Terminal, Crown, Sword
 } from 'lucide-react';
 
 interface Task {
@@ -38,89 +38,18 @@ const AGENT_THEMES: Record<string, {
   secondary: string; 
   accent: string;
   marble: string;
-  icon: any;
   title: string;
 }> = {
-  ARGOS: { 
-    primary: '#FFD700', 
-    secondary: '#B8860B', 
-    accent: '#FFA500',
-    marble: '#FFF8DC',
-    icon: Crown,
-    title: 'King of Olympus'
-  },
-  ATLAS: { 
-    primary: '#00CED1', 
-    secondary: '#008B8B', 
-    accent: '#5F9EA0',
-    marble: '#E0FFFF',
-    icon: Eye,
-    title: 'Frontend Titan'
-  },
-  HERCULOS: { 
-    primary: '#FF4500', 
-    secondary: '#DC143C', 
-    accent: '#FF6347',
-    marble: '#FFE4E1',
-    icon: Sword,
-    title: 'Backend Champion'
-  },
-  ATHENA: { 
-    primary: '#C0C0C0', 
-    secondary: '#A9A9A9', 
-    accent: '#D3D3D3',
-    marble: '#F5F5F5',
-    icon: Shield,
-    title: 'Goddess of QA'
-  },
-  APOLLO: { 
-    primary: '#FF1493', 
-    secondary: '#C71585', 
-    accent: '#FF69B4',
-    marble: '#FFF0F5',
-    icon: Flame,
-    title: 'Creative Muse'
-  },
-  PROMETHEUS: { 
-    primary: '#32CD32', 
-    secondary: '#228B22', 
-    accent: '#00FF7F',
-    marble: '#F0FFF0',
-    icon: Zap,
-    title: 'Infrastructure Titan'
-  },
-  HERMES: { 
-    primary: '#DAA520', 
-    secondary: '#8B4513', 
-    accent: '#CD853F',
-    marble: '#FFF8DC',
-    icon: Scroll,
-    title: 'Messenger of Docs'
-  },
-  Claude: { 
-    primary: '#9370DB', 
-    secondary: '#8A2BE2', 
-    accent: '#BA55D3',
-    marble: '#E6E6FA',
-    icon: Brain,
-    title: 'AI Architect'
-  },
-  Juan: { 
-    primary: '#4169E1', 
-    secondary: '#0000CD', 
-    accent: '#1E90FF',
-    marble: '#F0F8FF',
-    icon: Crown,
-    title: 'System Architect'
-  },
-  Nathanael: { 
-    primary: '#20B2AA', 
-    secondary: '#008080', 
-    accent: '#48D1CC',
-    marble: '#E0FFFF',
-    icon: Code,
-    title: 'Frontend Developer'
-  },
+  ARGOS: { primary: '#FFD700', secondary: '#B8860B', accent: '#FFA500', marble: '#FFF8DC', title: 'King of Olympus' },
+  ATLAS: { primary: '#00CED1', secondary: '#008B8B', accent: '#5F9EA0', marble: '#E0FFFF', title: 'Frontend Titan' },
+  HERCULOS: { primary: '#FF4500', secondary: '#DC143C', accent: '#FF6347', marble: '#FFE4E1', title: 'Backend Champion' },
+  ATHENA: { primary: '#C0C0C0', secondary: '#A9A9A9', accent: '#D3D3D3', marble: '#F5F5F5', title: 'Goddess of QA' },
+  APOLLO: { primary: '#FF1493', secondary: '#C71585', accent: '#FF69B4', marble: '#FFF0F5', title: 'Creative Muse' },
+  PROMETHEUS: { primary: '#32CD32', secondary: '#228B22', accent: '#00FF7F', marble: '#F0FFF0', title: 'Infrastructure Titan' },
+  HERMES: { primary: '#DAA520', secondary: '#8B4513', accent: '#CD853F', marble: '#FFF8DC', title: 'Messenger of Docs' },
+  Claude: { primary: '#9370DB', secondary: '#8A2BE2', accent: '#BA55D3', marble: '#E6E6FA', title: 'AI Architect' },
+  Juan: { primary: '#4169E1', secondary: '#0000CD', accent: '#1E90FF', marble: '#F0F8FF', title: 'System Architect' },
+  Nathanael: { primary: '#20B2AA', secondary: '#008080', accent: '#48D1CC', marble: '#E0FFFF', title: 'Frontend Developer' },
 };
 
 // Olymp Temple Grid Layout - Clean, no overlaps
@@ -147,15 +76,6 @@ const TEMPLE_LAYOUT = {
   gym:        { x: 760, y: 360, width: 150, height: 120, label: 'Training Grounds', icon: Dumbbell },
   warRoom:    { x: 760, y: 500, width: 150, height: 100, label: 'War Room', icon: Terminal },
 };
-
-function getRoomCenter(roomKey: string): {x: number, y: number} {
-  const room = TEMPLE_LAYOUT[roomKey as keyof typeof TEMPLE_LAYOUT];
-  if (!room || !('room' in room)) return { x: 400, y: 300 };
-  return {
-    x: room.x + room.width / 2,
-    y: room.y + room.height / 2
-  };
-}
 
 export function PixelOffice() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -291,23 +211,6 @@ export function PixelOffice() {
     return () => { if (animationRef.current) cancelAnimationFrame(animationRef.current); };
   }, []);
 
-  const getAgentsInRoom = (roomKey: string) => {
-    const room = TEMPLE_LAYOUT[roomKey as keyof typeof TEMPLE_LAYOUT];
-    if (!room || 'room' in room) return [];
-    return agents.filter(agent => {
-      const agentRoom = TEMPLE_LAYOUT[agent.name as keyof typeof TEMPLE_LAYOUT];
-      return agentRoom && 'room' in agentRoom && agentRoom.room === roomKey;
-    });
-  };
-
-  const timeAgo = (date: string | null) => {
-    if (!date) return '';
-    const minutes = Math.floor((Date.now() - new Date(date).getTime()) / 60000);
-    if (minutes < 1) return 'just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    return `${Math.floor(minutes / 60)}h ago`;
-  };
-
   const workingCount = agents.filter(a => a.state === 'working').length;
 
   return (
@@ -360,7 +263,6 @@ export function PixelOffice() {
             if (!('room' in room)) return null;
             
             const theme = AGENT_THEMES[key];
-            const Icon = theme.icon;
             const agent = agents.find(a => a.name === key);
             const isHovered = hoveredAgent === key;
             
@@ -386,7 +288,6 @@ export function PixelOffice() {
                   style={{ borderColor: theme.primary + '40', backgroundColor: theme.primary + '15' }}
                 >
                   <div className="flex items-center gap-2">
-                    <Icon className="w-3.5 h-3.5" style={{ color: theme.primary }} />
                     <span className="text-[9px] text-[#eaeaea] font-bold uppercase tracking-wider">{key}</span>
                   </div>
                   <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold" 
@@ -485,7 +386,6 @@ export function PixelOffice() {
             const room = TEMPLE_LAYOUT[key as keyof typeof TEMPLE_LAYOUT];
             if (!room || 'room' in room) return null;
             
-            const Icon = room.icon;
             const isHovered = hoveredRoom === key;
             
             return (
@@ -503,7 +403,6 @@ export function PixelOffice() {
                 onMouseLeave={() => setHoveredRoom(null)}
               >
                 <div className="h-6 flex items-center justify-center border-b border-[#DAA520]/30 bg-[#DAA520]/10">
-                  <Icon className="w-3.5 h-3.5 text-[#DAA520] mr-2" />
                   <span className="text-[9px] text-[#DAA520] font-bold">{room.label}</span>
                 </div>
                 <div className="p-2 flex items-center justify-center h-[calc(100%-24px)]">
