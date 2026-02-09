@@ -3,7 +3,8 @@ import { supabase } from '@/lib/supabase';
 import { OfficeAgent } from './OfficeAgent';
 import { 
   Coffee, Users, Dumbbell, Monitor, Zap, Brain, Code, Shield, 
-  Flame, BookOpen, MessageSquare, Terminal, CheckCircle 
+  Flame, BookOpen, MessageSquare, Terminal, CheckCircle,
+  ZoomIn, ZoomOut, Maximize2, Minimize2
 } from 'lucide-react';
 
 interface Task {
@@ -82,6 +83,14 @@ export function PixelOffice() {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const [scale, setScale] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [tappedAgent, setTappedAgent] = useState<string | null>(null);
+  const [tappedRoom, setTappedRoom] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>(0);
   const lastUpdateRef = useRef<number>(Date.now());
 
@@ -153,6 +162,46 @@ export function PixelOffice() {
 
     return () => { subscription.unsubscribe(); };
   }, []);
+
+  // Mobile detection
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768 || 'ontouchstart' in window;
+      setIsMobile(mobile);
+      if (mobile && scale === 1) {
+        setScale(0.6); // Default zoom out for mobile
+        setPan({ x: -100, y: 0 });
+      }
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Touch/Pan handlers
+  const handleTouchStart = (e: React.TouchEvent | React.MouseEvent) => {
+    if (!isMobile) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    setIsDragging(true);
+    setDragStart({ x: clientX - pan.x, y: clientY - pan.y });
+  };
+
+  const handleTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
+    if (!isDragging || !isMobile) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    setPan({ x: clientX - dragStart.x, y: clientY - dragStart.y });
+  };
+
+  const handleTouchEnd = () => setIsDragging(false);
+
+  const handleZoomIn = () => setScale(s => Math.min(s + 0.2, 2));
+  const handleZoomOut = () => setScale(s => Math.max(s - 0.2, 0.4));
+  const handleResetView = () => {
+    setScale(isMobile ? 0.6 : 1);
+    setPan(isMobile ? { x: -100, y: 0 } : { x: 0, y: 0 });
+  };
 
   useEffect(() => {
     const animate = () => {

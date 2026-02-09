@@ -10,7 +10,7 @@ interface AgentState {
   targetPosition: { x: number; y: number } | null;
   currentTask: { title: string } | null;
   activity: string;
-  breakType: 'coffee' | 'gym' | 'chill' | null;
+  breakType?: 'coffee' | 'gym' | 'chill' | null;
 }
 
 interface Props {
