@@ -5,9 +5,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=argos
-WorkingDirectory=/home/argos/olympus/services/execution-bridge
-ExecStart=/usr/bin/node dist/index.js
+User=onioko
+WorkingDirectory=/home/onioko/olympus/services/execution-bridge
+ExecStart=/home/onioko/.nvm/versions/node/v24.13.0/bin/node /home/onioko/olympus/services/execution-bridge/dist/index.js
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -15,12 +15,10 @@ StandardError=journal
 SyslogIdentifier=olymp-bridge
 
 # Environment
-EnvironmentFile=/home/argos/olympus/services/execution-bridge/.env
+EnvironmentFile=/home/onioko/olympus/services/execution-bridge/.env
 
 # Safety
 NoNewPrivileges=true
-ProtectSystem=strict
-ReadWritePaths=/home/argos/olympus
 
 [Install]
 WantedBy=multi-user.target
