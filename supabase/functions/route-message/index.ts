@@ -60,26 +60,35 @@ serve(async (req: Request) => {
 
     // Step 3: Check for mentions — direct response (skip hand-raise)
     // Supports both @Claude and just "Claude" / "Hey Claude" in voice messages
-    const mentionedByAt = agentParticipants
-      .filter(a => messageText.toLowerCase().includes(`@${a.participant_name.toLowerCase()}`))
-      .map(a => a.participant_name);
+    const allParticipants = participants?.filter(p => p.is_active) || [];
 
-    // Name-based detection (without @) — for voice transcriptions
+    // Check @mentions against ALL participants (agents + humans)
+    const mentionedByAt = allParticipants
+      .filter(a => messageText.toLowerCase().includes(`@${a.participant_name.toLowerCase()}`))
+      .map(a => ({ name: a.participant_name, type: a.participant_type }));
+
+    // Name-based detection (without @) — only for AGENTS (avoid false positives on human names in conversation)
     const mentionedByName = agentParticipants
       .filter(a => {
-        if (mentionedByAt.includes(a.participant_name)) return false; // already matched by @
+        if (mentionedByAt.some(m => m.name === a.participant_name)) return false;
         const name = a.participant_name.toLowerCase();
         const text = messageText.toLowerCase();
-        // Match "claude", "hey claude", "atlas", etc. as standalone words
         const nameRegex = new RegExp(`\\b${name}\\b`, "i");
         return nameRegex.test(text);
       })
-      .map(a => a.participant_name);
+      .map(a => ({ name: a.participant_name, type: "agent" }));
 
-    const mentioned = [...mentionedByAt, ...mentionedByName];
+    const allMentioned = [...mentionedByAt, ...mentionedByName];
+    // Only send API requests to agents, not humans
+    const mentionedAgents = allMentioned.filter(m => m.type === "agent").map(m => m.name);
 
-    if (mentioned.length > 0) {
-      return await handleFullResponse(room_id, messageText, mentioned);
+    if (mentionedAgents.length > 0) {
+      return await handleFullResponse(room_id, messageText, mentionedAgents);
+    }
+
+    // If only humans were mentioned, treat as normal message (no agent response needed)
+    if (allMentioned.length > 0 && mentionedAgents.length === 0) {
+      return json({ status: "human_mention", mentioned: allMentioned.map(m => m.name) });
     }
 
     // Step 3b: Voice messages — skip hand-raise, all agents respond directly
