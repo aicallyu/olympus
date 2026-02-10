@@ -1,0 +1,54 @@
+redirectsOrigin = "config"
+plugins = []
+headers = []
+
+[functions]
+
+[functions."*"]
+
+[build]
+publish = "/home/onioko/olympus/frontend/dist"
+publishOrigin = "config"
+commandOrigin = "config"
+base = "/home/onioko/olympus/frontend"
+command = "npm run build"
+
+[build.environment]
+VITE_SUPABASE_URL = "https://mfpyyriilflviojnqhuv.supabase.co"
+VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mcHl5cmlpbGZsdmlvam5xaHV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyMTk0ODcsImV4cCI6MjA4NTc5NTQ4N30.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+
+[build.processing]
+
+[build.processing.css]
+
+[build.processing.html]
+
+[build.processing.images]
+
+[build.processing.js]
+
+[build.services]
+
+[[redirects]]
+from = "/api/*"
+to = "/api/:splat"
+status = 200.0
+force = false
+
+[redirects.query]
+
+[redirects.conditions]
+
+[redirects.headers]
+
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200.0
+force = false
+
+[redirects.query]
+
+[redirects.conditions]
+
+[redirects.headers]

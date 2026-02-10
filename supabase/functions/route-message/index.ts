@@ -28,11 +28,8 @@ serve(async (req: Request) => {
       action, target_agents,
     } = body;
 
-    console.log("[route-message] Received:", { action, room_id, sender_name, content_type, has_content: !!content, has_audio: !!audio_url });
-
     // ---- ACTION: full_response (frontend requests specific agent responses) ----
     if (action === "full_response") {
-      console.log("[route-message] full_response for:", target_agents);
       return await handleFullResponse(room_id, content, target_agents || []);
     }
 
@@ -56,24 +53,49 @@ serve(async (req: Request) => {
       .eq("is_active", true);
 
     const agentParticipants = participants?.filter(p => p.participant_type === "agent") || [];
-    console.log("[route-message] Agents in room:", agentParticipants.map(a => a.participant_name));
 
     if (agentParticipants.length === 0) {
-      console.log("[route-message] No agents in room, exiting");
       return json({ status: "no_agents" });
     }
 
-    // Step 3: Check for @mentions — direct response (skip hand-raise)
-    const mentioned = agentParticipants
-      .filter(a => messageText.toLowerCase().includes(`@${a.participant_name.toLowerCase()}`))
-      .map(a => a.participant_name);
+    // Step 3: Check for mentions — direct response (skip hand-raise)
+    // Supports both @Claude and just "Claude" / "Hey Claude" in voice messages
+    const allParticipants = participants?.filter(p => p.is_active) || [];
 
-    if (mentioned.length > 0) {
-      console.log("[route-message] @mentions found:", mentioned);
-      return await handleFullResponse(room_id, messageText, mentioned);
+    // Check @mentions against ALL participants (agents + humans)
+    const mentionedByAt = allParticipants
+      .filter(a => messageText.toLowerCase().includes(`@${a.participant_name.toLowerCase()}`))
+      .map(a => ({ name: a.participant_name, type: a.participant_type }));
+
+    // Name-based detection (without @) — only for AGENTS (avoid false positives on human names in conversation)
+    const mentionedByName = agentParticipants
+      .filter(a => {
+        if (mentionedByAt.some(m => m.name === a.participant_name)) return false;
+        const name = a.participant_name.toLowerCase();
+        const text = messageText.toLowerCase();
+        const nameRegex = new RegExp(`\\b${name}\\b`, "i");
+        return nameRegex.test(text);
+      })
+      .map(a => ({ name: a.participant_name, type: "agent" }));
+
+    const allMentioned = [...mentionedByAt, ...mentionedByName];
+    // Only send API requests to agents, not humans
+    const mentionedAgents = allMentioned.filter(m => m.type === "agent").map(m => m.name);
+
+    if (mentionedAgents.length > 0) {
+      return await handleFullResponse(room_id, messageText, mentionedAgents);
     }
 
-    console.log("[route-message] No mentions, entering hand-raise mode");
+    // If only humans were mentioned, treat as normal message (no agent response needed)
+    if (allMentioned.length > 0 && mentionedAgents.length === 0) {
+      return json({ status: "human_mention", mentioned: allMentioned.map(m => m.name) });
+    }
+
+    // Step 3b: Voice messages — skip hand-raise, all agents respond directly
+    if (content_type === "voice") {
+      const allAgentNames = agentParticipants.map(a => a.participant_name);
+      return await handleFullResponse(room_id, messageText, allAgentNames);
+    }
 
     // Step 4: Hand-raise mode — ask all agents if they want to speak
     // First, reset all hands from previous message
@@ -95,18 +117,13 @@ serve(async (req: Request) => {
     for (const rec of agentRecords || []) {
       agentMap.set(rec.name, rec);
     }
-    console.log("[route-message] Agent records found:", agentRecords?.map(r => `${r.name}(${r.api_endpoint ? 'has_endpoint' : 'NO_endpoint'})`));
 
     // Ask all agents in parallel if they want to speak
     const handRaiseResults = await Promise.all(
       agentNames.map(async (name) => {
         const rec = agentMap.get(name);
-        if (!rec) {
-          console.log(`[route-message] No agent record for "${name}", skipping`);
-          return null;
-        }
+        if (!rec) return null;
         const result = await askHandRaise(rec, messageText, name);
-        console.log(`[route-message] Hand-raise ${name}: wants_to_speak=${result.wants_to_speak}, reason=${result.reason}`);
         return { name, ...result };
       })
     );
@@ -117,21 +134,16 @@ serve(async (req: Request) => {
       const participant = agentParticipants.find(a => a.participant_name === result.name);
       if (!participant) continue;
 
-      const { error: updateErr } = await supabase
+      await supabase
         .from("war_room_participants")
         .update({
           hand_raised: result.wants_to_speak,
           hand_reason: result.wants_to_speak ? result.reason : null,
         })
         .eq("id", participant.id);
-
-      if (updateErr) {
-        console.error(`[route-message] Failed to update hand for ${result.name}:`, updateErr);
-      }
     }
 
     const raisedHands = handRaiseResults.filter(r => r?.wants_to_speak).map(r => r!.name);
-    console.log("[route-message] Raised hands:", raisedHands);
     return json({ status: "hands_raised", agents: raisedHands });
 
   } catch (err) {
@@ -148,16 +160,36 @@ serve(async (req: Request) => {
 // ============================================================
 
 function extractExecutionPayload(agentResponse: string): Record<string, unknown> | null {
+  // Look for ```execution ... ``` blocks in agent response
   const executionBlockRegex = /```execution\s*\n([\s\S]*?)\n```/;
   const match = agentResponse.match(executionBlockRegex);
+
   if (!match) return null;
+
   try {
     const parsed = JSON.parse(match[1]);
+
+    // Validate basic structure — need at least files + branch + commit_message
     if (parsed.files && Array.isArray(parsed.files) && parsed.branch && parsed.commit_message) {
-      return { type: "code_commit", payload: { files: parsed.files, branch: parsed.branch, commit_message: parsed.commit_message, base_branch: parsed.base_branch || "main" } };
+      return {
+        type: "code_commit",
+        payload: {
+          files: parsed.files,
+          branch: parsed.branch,
+          commit_message: parsed.commit_message,
+          base_branch: parsed.base_branch || "main",
+        },
+      };
     }
-    if (parsed.type && parsed.payload) return parsed;
-  } catch (e) { console.error("Failed to parse execution block:", e); }
+
+    // Also support pre-wrapped format: { type: "...", payload: { ... } }
+    if (parsed.type && parsed.payload) {
+      return parsed;
+    }
+  } catch (e) {
+    console.error("Failed to parse execution block:", e);
+  }
+
   return null;
 }
 
@@ -166,8 +198,6 @@ function extractExecutionPayload(agentResponse: string): Record<string, unknown>
 // ============================================================
 
 async function handleFullResponse(roomId: string, messageText: string, targetAgents: string[]) {
-  console.log("[handleFullResponse] targets:", targetAgents, "message:", messageText?.substring(0, 80));
-
   if (targetAgents.length === 0) {
     return json({ status: "no_targets" });
   }
@@ -184,7 +214,6 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
       .limit(1)
       .single();
     effectiveMessage = latestMsg?.content || "Please respond.";
-    console.log("[handleFullResponse] Fetched latest message from DB:", effectiveMessage?.substring(0, 80));
   }
 
   const { data: participants } = await supabase
@@ -198,24 +227,23 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
     .select("name, role, session_key, api_endpoint, api_model, system_prompt, model_primary, model_escalation, voice_id")
     .in("name", targetAgents);
 
-  console.log("[handleFullResponse] Agent records:", agentRecords?.map(r => `${r.name}: endpoint=${r.api_endpoint}, model=${r.api_model}`));
-
   const agentMap = new Map<string, AgentRecord>();
   for (const rec of agentRecords || []) {
     agentMap.set(rec.name, rec);
   }
 
-  const context = await buildContext(roomId, 20);
+  // Sequential execution: each agent sees previous agents' responses
+  const responded: string[] = [];
 
-  const responsePromises = targetAgents.map(async (agentName) => {
+  for (const agentName of targetAgents) {
     const participant = participants?.find(a => a.participant_name === agentName);
     const agentRecord = agentMap.get(agentName);
 
-    if (!participant) {
-      console.log(`[handleFullResponse] ${agentName}: not found in participants`);
-      return;
-    }
-    if (participant.participant_type === "human") return;
+    if (!participant) continue;
+    if (participant.participant_type === "human") continue;
+
+    // Rebuild context EACH time so this agent sees what previous agents said
+    const context = await buildContext(roomId, 20);
 
     const startTime = Date.now();
 
@@ -223,6 +251,8 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
       const response = await callAgentFromRecord(agentRecord, participant, effectiveMessage, context, agentName);
       const responseTime = Date.now() - startTime;
       const modelUsed = agentRecord?.api_model || agentRecord?.model_primary || "unknown";
+
+      // Extract execution payload from agent response
       const executionPayload = extractExecutionPayload(response.text);
 
       const { data: insertedMsg } = await supabase
@@ -259,6 +289,8 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
         .update({ hand_raised: false, hand_reason: null })
         .eq("id", participant.id);
 
+      responded.push(agentName);
+
     } catch (err) {
       console.error(`Agent ${agentName} failed:`, err);
       await supabase.from("war_room_messages").insert({
@@ -269,10 +301,9 @@ async function handleFullResponse(roomId: string, messageText: string, targetAge
         metadata: { error: true },
       });
     }
-  });
+  }
 
-  await Promise.all(responsePromises);
-  return json({ status: "ok", responded: targetAgents });
+  return json({ status: "ok", responded });
 }
 
 // ============================================================
@@ -464,7 +495,9 @@ async function callAgentFromRecord(
   const systemPrompt = agentRecord.system_prompt ||
     `You are ${agentName}, a ${agentRecord.role} in the OLYMPUS multi-agent system. Keep responses concise and helpful.`;
 
-  const fullPrompt = `${systemPrompt}\n\n${context}`;
+  const fullPrompt = `${systemPrompt}
+
+${context}`;
   const endpoint = agentRecord.api_endpoint;
 
   if (endpoint.includes("anthropic.com")) {
@@ -633,9 +666,14 @@ ${participantList}
 RECENT CONVERSATION:
 ${messageHistory}
 
-Respond naturally. Be concise. Don't repeat what others said. Add your unique perspective.
-If you have nothing meaningful to add, say so briefly.
-Match the language of the conversation (German or English).`;
+IMPORTANT RULES:
+- Read the ENTIRE conversation above carefully, including other agents' responses.
+- If another agent already answered, reference their points: agree, disagree, or build on them.
+- Do NOT repeat what others already said. Add your unique perspective.
+- If you agree with a previous agent, say so briefly and add what they missed.
+- If you disagree, explain why with specific reasoning.
+- Be concise. No filler.
+- Match the language of the conversation (German or English).`;
 }
 
 // ============================================================

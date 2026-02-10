@@ -28,6 +28,7 @@ export function MessageBubble({ message, isOwnMessage }: Props) {
   });
   const isVoiceTranscribed = message.metadata?.voice_transcribed;
   const [isPlaying, setIsPlaying] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(!message.audio_url); // Collapsed by default if audio exists
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   return (
@@ -85,31 +86,46 @@ export function MessageBubble({ message, isOwnMessage }: Props) {
               <span className="text-[10px] font-mono uppercase tracking-[0.1em]">Voice transcription</span>
             </div>
           )}
-          <p className="text-[13px] md:text-sm leading-relaxed whitespace-pre-wrap font-mono">{message.content}</p>
+          
+          {/* Transcript text - collapsible when audio exists */}
+          {showTranscript && (
+            <p className="text-[13px] md:text-sm leading-relaxed whitespace-pre-wrap font-mono">{message.content}</p>
+          )}
 
+          {/* Audio player + Transcript toggle */}
           {message.audio_url && (
-            <button
-              onClick={() => {
-                if (!audioRef.current) {
-                  audioRef.current = new Audio(message.audio_url!);
-                  audioRef.current.onended = () => setIsPlaying(false);
-                  audioRef.current.onerror = () => setIsPlaying(false);
-                }
-                if (isPlaying) {
-                  audioRef.current.pause();
-                  audioRef.current.currentTime = 0;
-                  setIsPlaying(false);
-                } else {
-                  audioRef.current.play();
-                  setIsPlaying(true);
-                }
-              }}
-              className="mt-1.5 flex items-center gap-1.5 px-2 py-1 rounded-md bg-[rgba(184,150,90,0.12)] border border-primary/20 text-primary text-[11px] font-mono hover:bg-[rgba(184,150,90,0.2)] transition-colors"
-              title={isPlaying ? 'Stop audio' : 'Play audio'}
-            >
-              <span className="text-sm">{isPlaying ? '⏹' : '▶️'}</span>
-              <span className="uppercase tracking-[0.1em]">{isPlaying ? 'Stop' : 'Play voice'}</span>
-            </button>
+            <div className="flex flex-col gap-1.5">
+              <button
+                onClick={() => {
+                  if (!audioRef.current) {
+                    audioRef.current = new Audio(message.audio_url!);
+                    audioRef.current.onended = () => setIsPlaying(false);
+                    audioRef.current.onerror = () => setIsPlaying(false);
+                  }
+                  if (isPlaying) {
+                    audioRef.current.pause();
+                    audioRef.current.currentTime = 0;
+                    setIsPlaying(false);
+                  } else {
+                    audioRef.current.play();
+                    setIsPlaying(true);
+                  }
+                }}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[rgba(184,150,90,0.12)] border border-primary/20 text-primary text-[11px] font-mono hover:bg-[rgba(184,150,90,0.2)] transition-colors w-fit"
+                title={isPlaying ? 'Stop audio' : 'Play audio'}
+              >
+                <span className="text-sm">{isPlaying ? '⏹' : '▶️'}</span>
+                <span className="uppercase tracking-[0.1em]">{isPlaying ? 'Stop' : 'Play voice'}</span>
+              </button>
+              
+              {/* Transcript toggle link */}
+              <button
+                onClick={() => setShowTranscript(!showTranscript)}
+                className="text-[10px] font-mono text-text-muted hover:text-primary transition-colors w-fit"
+              >
+                {showTranscript ? 'Transcript ▲' : 'Transcript ▼'}
+              </button>
+            </div>
           )}
         </div>
 

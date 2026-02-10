@@ -348,16 +348,44 @@ export function WarRoom({ roomId }: Props) {
       try {
         const blob = await stopRecording();
         setIsTranscribing(true);
-        const text = await transcribeAudio(blob);
-        if (text && text.trim()) {
-          lastHumanMessageRef.current = text;
-          await sendMessage(text, { voice_transcribed: true });
-        } else {
-          showToast('No speech detected in the recording', 'error');
+
+        // Upload audio to Supabase Storage
+        const fileName = `voice/${Date.now()}.webm`;
+        const { error: uploadError } = await supabase.storage
+          .from('war-room-audio')
+          .upload(fileName, blob, { contentType: 'audio/webm' });
+
+        if (uploadError) {
+          console.error('Upload failed:', uploadError);
+          showToast('Failed to upload voice message', 'error');
+          return;
+        }
+
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('war-room-audio')
+          .getPublicUrl(fileName);
+
+        // Send voice message with prefer_voice_reply
+        const { error: insertError } = await supabase.from('war_room_messages').insert({
+          room_id: roomId,
+          sender_name: 'Juan',
+          sender_type: 'human',
+          content: '🎤 Voice message',
+          content_type: 'voice',
+          audio_url: urlData.publicUrl,
+          metadata: {
+            prefer_voice_reply: true, // Always true for voice messages
+          },
+        });
+
+        if (insertError) {
+          console.error('Failed to send voice message:', insertError);
+          showToast('Failed to send voice message', 'error');
         }
       } catch (err) {
-        console.error('Transcription failed:', err);
-        showToast(`Voice transcription failed: ${(err as Error).message}`, 'error');
+        console.error('Voice message failed:', err);
+        showToast(`Voice message failed: ${(err as Error).message}`, 'error');
       } finally {
         setIsTranscribing(false);
       }
@@ -376,6 +404,9 @@ export function WarRoom({ roomId }: Props) {
     }
   };
 
+  // Note: transcribeAudio is now handled by the Edge Function
+  // Kept for reference but not used in current implementation
+  /*
   async function transcribeAudio(blob: Blob): Promise<string> {
     const ext = (blob as any)._ext || 'webm';
     const formData = new FormData();
@@ -401,6 +432,7 @@ export function WarRoom({ roomId }: Props) {
     const data = await res.json();
     return data.text || '';
   }
+  */
 
   // ---- Add agent ----
 
@@ -462,7 +494,6 @@ export function WarRoom({ roomId }: Props) {
 
   const mentionMatches = mentionQuery !== null
     ? participants
-        .filter(p => p.participant_type === 'agent')
         .filter(p => p.participant_name.toLowerCase().startsWith(mentionQuery))
     : [];
 

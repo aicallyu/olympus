@@ -6,6 +6,7 @@ import { TaskBoard } from './pages/TaskBoard'
 import { AgentStatus } from './pages/AgentStatus'
 import { ActivityFeed } from './pages/ActivityFeed'
 import { WarRoomLobby } from './pages/WarRoomLobby'
+import { OfficePage } from './pages/OfficePage'
 import { WarRoom } from './components/war-room/WarRoom'
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
         <Route path="/activity" element={<ActivityFeed />} />
         <Route path="/war-room" element={<WarRoomLobby />} />
         <Route path="/war-room/:roomId" element={<WarRoomWrapper />} />
+        <Route path="/office" element={<OfficePage />} />
       </Routes>
     </Layout>
     </UserProvider>

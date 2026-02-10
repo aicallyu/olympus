@@ -62,14 +62,16 @@ export function useWarRoomMessages(roomId: string) {
 
   // Send a text message
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, options?: { preferVoiceReply?: boolean }) => {
       const { error } = await supabase.from('war_room_messages').insert({
         room_id: roomId,
         sender_name: 'Juan', // TODO: get from auth context
         sender_type: 'human',
         content,
         content_type: 'text',
-        metadata: {},
+        metadata: {
+          prefer_voice_reply: options?.preferVoiceReply ?? false,
+        },
       });
       if (error) console.error('Failed to send:', error);
     },
@@ -78,7 +80,7 @@ export function useWarRoomMessages(roomId: string) {
 
   // Send a voice message
   const sendVoiceMessage = useCallback(
-    async (audioBlob: Blob) => {
+    async (audioBlob: Blob, preferVoiceReply: boolean = false) => {
       const fileName = `voice/${Date.now()}.webm`;
       const { error: uploadError } = await supabase.storage
         .from('war-room-audio')
@@ -100,7 +102,9 @@ export function useWarRoomMessages(roomId: string) {
         content: '🎤 Voice message (transcribing...)',
         content_type: 'voice',
         audio_url: urlData.publicUrl,
-        metadata: {},
+        metadata: {
+          prefer_voice_reply: preferVoiceReply,
+        },
       });
       if (error) console.error('Failed to send voice:', error);
     },
