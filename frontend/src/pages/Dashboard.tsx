@@ -1,8 +1,16 @@
+import { useEffect } from 'react'
 import { StatsRow } from '@/components/overview/StatsRow'
 import { PantheonGrid } from '@/components/overview/PantheonGrid'
 import { ActivityFeed } from '@/components/overview/ActivityFeed'
+import { useOlympusStore } from '@/hooks/useOlympusStore'
 
 export function Dashboard() {
+  const fetchStats = useOlympusStore((state) => state.fetchStats)
+
+  useEffect(() => {
+    fetchStats()
+  }, [fetchStats])
+
   return (
     <div className="space-y-8">
       <div>
