@@ -1,9 +1,9 @@
-import { PixelOffice } from '@/components/war-room/PixelOffice';
+import { PixelOfficeNew } from '@/components/war-room/PixelOfficeNew';
 
 export function OfficePage() {
   return (
-    <div className="h-screen w-full bg-[#1a1a2e]">
-      <PixelOffice />
+    <div className="min-h-screen bg-[#0a0a12]">
+      <PixelOfficeNew />
     </div>
   );
 }
